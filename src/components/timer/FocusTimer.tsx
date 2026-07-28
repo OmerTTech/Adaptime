@@ -9,11 +9,7 @@ import {
   Zap,
   TimerOff,
 } from "lucide-react";
-import {
-  completeTask,
-  pauseTask,
-  resumeTask,
-} from "@/store/slices/routineSlice";
+import { completeTask, pauseTask, skipTask } from "@/store/slices/routineSlice";
 import {
   openPauseModal,
   openFlowModal,
@@ -47,17 +43,21 @@ export default function FocusTimer() {
   const handlePause = useCallback(() => {
     if (!currentTask) return;
     dispatch(pauseTask(currentTask.id));
-    dispatch(openPauseModal({ taskId: currentTask.id, pauseDuration: 0 }));
   }, [currentTask, dispatch]);
 
   const handleResume = useCallback(() => {
     if (!currentTask) return;
-    dispatch(resumeTask(currentTask.id));
+    dispatch(openPauseModal({ taskId: currentTask.id, pauseDuration: 0 }));
   }, [currentTask, dispatch]);
 
   const handleComplete = useCallback(() => {
     if (!currentTask) return;
     dispatch(completeTask(currentTask.id));
+  }, [currentTask, dispatch]);
+
+  const handleSkip = useCallback(() => {
+    if (!currentTask) return;
+    dispatch(skipTask(currentTask.id));
   }, [currentTask, dispatch]);
 
   const handleFlowState = useCallback(() => {
@@ -83,17 +83,22 @@ export default function FocusTimer() {
     now - currentTask.startTime - currentTask.pausedDuration - pausedTime,
   );
   const remaining = Math.max(0, effectiveDuration - elapsed);
+  const remainingMinutes = Math.ceil(remaining / 60000);
   const progress =
     effectiveDuration > 0
       ? Math.min((elapsed / effectiveDuration) * 100, 100)
       : 0;
 
-  const totalSec = Math.floor(remaining / 1000);
-  const hours = Math.floor(totalSec / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
+  const elapsedSec = Math.floor(elapsed / 1000);
+  const eHours = Math.floor(elapsedSec / 3600);
+  const eMinutes = Math.floor((elapsedSec % 3600) / 60);
+  const eSeconds = elapsedSec % 60;
 
-  const remainingMinutes = Math.ceil(remaining / 60000);
+  const remSec = Math.floor(remaining / 1000);
+  const rHours = Math.floor(remSec / 3600);
+  const rMinutes = Math.floor((remSec % 3600) / 60);
+  const rSeconds = remSec % 60;
+
   const hasTimeLeft = remainingMinutes > 5;
   const dimmed =
     isPauseModalOpen ||
@@ -143,11 +148,18 @@ export default function FocusTimer() {
             className="text-6xl font-mono font-bold tabular-nums"
             style={{ color: currentTask.color }}
           >
-            {hours > 0 && `${hours}:`}
-            {String(minutes).padStart(2, "0")}:
-            {String(seconds).padStart(2, "0")}
+            {eHours > 0 && `${eHours}:`}
+            {String(eMinutes).padStart(2, "0")}:
+            {String(eSeconds).padStart(2, "0")}
           </div>
-          <p className="text-xs text-text-muted mt-2">kalan süre</p>
+          <p className="text-xs text-text-muted mt-2">geçen süre</p>
+          {currentTask.status === "active" && (
+            <p className="text-xs text-text-muted mt-1">
+              kalan {rHours > 0 && `${rHours}:`}
+              {String(rMinutes).padStart(2, "0")}:
+              {String(rSeconds).padStart(2, "0")}
+            </p>
+          )}
         </div>
 
         <div className="h-2 bg-border rounded-full overflow-hidden mb-6">
@@ -186,7 +198,10 @@ export default function FocusTimer() {
             <CheckCircle size={18} />
             Tamamla
           </button>
-          <button className="flex items-center gap-2 px-4 py-3 rounded-xl bg-surface border border-border text-text-muted hover:text-text hover:border-border/80 transition-all text-sm">
+          <button
+            onClick={handleSkip}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-surface border border-border text-text-muted hover:text-text hover:border-border/80 transition-all text-sm"
+          >
             <SkipForward size={18} />
           </button>
         </div>

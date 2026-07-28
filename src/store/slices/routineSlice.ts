@@ -146,6 +146,15 @@ const routineSlice = createSlice({
         task.status = "active";
       }
     },
+    skipTask: (state, action: PayloadAction<string>) => {
+      if (!state.currentRoutine) return;
+      const task = state.currentRoutine.tasks.find(
+        (t) => t.id === action.payload,
+      );
+      if (task) {
+        task.status = "skipped";
+      }
+    },
     completeTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
@@ -217,6 +226,7 @@ export const updateTask = routineSlice.actions.updateTask;
 export const startTask = routineSlice.actions.startTask;
 export const pauseTask = routineSlice.actions.pauseTask;
 export const resumeTask = routineSlice.actions.resumeTask;
+export const skipTask = routineSlice.actions.skipTask;
 export const completeTask = routineSlice.actions.completeTask;
 export const applyModifiedTasks = routineSlice.actions.applyModifiedTasks;
 export const setPreview = routineSlice.actions.setPreview;

@@ -54,6 +54,7 @@ export default function ImpactPreviewModal() {
   const dayEndTime = useAppSelector(
     (state) => state.routine.currentRoutine?.dayEndTime ?? 0,
   );
+  const pausedTaskId = useAppSelector((state) => state.ui.pausedTaskId);
 
   if (!isOpen) return null;
 
@@ -100,8 +101,24 @@ export default function ImpactPreviewModal() {
 
   const handleConfirm = () => {
     let modifiedTasks = tasks;
-    if (source === "pause" && pauseImpact) {
+
+    if (source === "pause" && pauseImpact && pausedTaskId) {
+      const pausedTask = tasks.find((t) => t.id === pausedTaskId);
+      const actualPauseMs = pausedTask?.pausedAt
+        ? Date.now() - pausedTask.pausedAt
+        : 0;
       modifiedTasks = applyPauseImpact(tasks, pauseImpact);
+      modifiedTasks = modifiedTasks.map((t) => {
+        if (t.id === pausedTaskId) {
+          return {
+            ...t,
+            pausedDuration: t.pausedDuration + actualPauseMs,
+            pausedAt: undefined,
+            status: "active" as const,
+          };
+        }
+        return t;
+      });
     } else if (source === "flow" && flowImpact) {
       modifiedTasks = applyFlowImpact(tasks, flowImpact);
     } else if (source === "earlyFinish" && earlyFinishImpact) {

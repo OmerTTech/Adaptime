@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { closePauseModal, setPendingPauseImpact } from "@/store/slices/uiSlice";
-import { resumeTask } from "@/store/slices/routineSlice";
 import { calculatePauseImpact } from "@/engine/timeEngine";
 import { formatDuration } from "@/utils";
 import { ArrowRight, Scissors, Scale, X } from "lucide-react";
@@ -75,7 +74,6 @@ export default function PauseOptionsModal() {
   };
 
   const handleBack = () => {
-    if (pausedTaskId) dispatch(resumeTask(pausedTaskId));
     dispatch(closePauseModal());
   };
 

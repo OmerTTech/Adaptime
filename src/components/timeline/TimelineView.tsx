@@ -1,35 +1,21 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { formatTime, formatDuration } from "@/utils";
-import { Play, Pause, CheckCircle, Clock } from "lucide-react";
+import { Play, Pause, CheckCircle, SkipForward, Clock } from "lucide-react";
 import {
   startTask,
   pauseTask,
-  resumeTask,
   completeTask,
+  skipTask,
 } from "@/store/slices/routineSlice";
 import { openPauseModal } from "@/store/slices/uiSlice";
-
-const STATUS_ICONS: Record<string, typeof Play> = {
-  pending: Clock,
-  active: Play,
-  paused: Pause,
-  completed: CheckCircle,
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "text-text-muted",
-  active: "text-success",
-  paused: "text-warning",
-  completed: "text-primary",
-};
 
 export default function TimelineView() {
   const tasks = useAppSelector(
     (state) => state.routine.currentRoutine?.tasks ?? [],
   );
   const dispatch = useAppDispatch();
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
@@ -42,20 +28,14 @@ export default function TimelineView() {
         case "pending":
           dispatch(startTask(task.id));
           break;
-        case "active": {
+        case "active":
           dispatch(pauseTask(task.id));
-          dispatch(
-            openPauseModal({
-              taskId: task.id,
-              pauseDuration: 0,
-            }),
-          );
           break;
-        }
         case "paused":
-          dispatch(resumeTask(task.id));
+          dispatch(openPauseModal({ taskId: task.id, pauseDuration: 0 }));
           break;
         case "completed":
+        case "skipped":
           break;
       }
     },
@@ -70,11 +50,11 @@ export default function TimelineView() {
   return (
     <div className="w-full max-w-2xl mx-auto space-y-2">
       {tasks.map((task, i) => {
-        const Icon = STATUS_ICONS[task.status] || Clock;
-        const colorClass = STATUS_COLORS[task.status] || "text-text-muted";
         const duration = getEffectiveDuration(task);
         const pausedExtra =
-          task.status === "paused" && task.pausedAt ? tick - task.pausedAt : 0;
+          task.status === "paused" && task.pausedAt
+            ? Date.now() - task.pausedAt
+            : 0;
         const elapsed =
           task.status === "active"
             ? Math.min(
@@ -97,16 +77,22 @@ export default function TimelineView() {
                 className="w-10 h-10 rounded-lg flex items-center justify-center"
                 style={{ backgroundColor: task.color + "20" }}
               >
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{
-                    backgroundColor: task.color,
-                    boxShadow:
-                      task.status === "active"
-                        ? `0 0 8px ${task.color}`
-                        : "none",
-                  }}
-                />
+                {task.status === "completed" ? (
+                  <CheckCircle size={20} style={{ color: task.color }} />
+                ) : task.status === "skipped" ? (
+                  <SkipForward size={18} style={{ color: "#ef4444" }} />
+                ) : (
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{
+                      backgroundColor: task.color,
+                      boxShadow:
+                        task.status === "active"
+                          ? `0 0 8px ${task.color}`
+                          : "none",
+                    }}
+                  />
+                )}
               </div>
               {i < tasks.length - 1 && (
                 <div className="absolute top-full left-1/2 -translate-x-1/2 w-px h-2 bg-border" />
@@ -118,15 +104,15 @@ export default function TimelineView() {
                 <h3 className="text-sm font-medium text-text truncate">
                   {task.title}
                 </h3>
-                <span className={`text-xs ${colorClass}`}>
-                  {task.status === "active"
-                    ? "● Canlı"
-                    : task.status === "paused"
-                      ? "● Duraklatıldı"
-                      : task.status === "completed"
-                        ? "● Tamamlandı"
-                        : ""}
-                </span>
+                {task.status === "active" && (
+                  <span className="text-xs text-success">● Canlı</span>
+                )}
+                {task.status === "paused" && (
+                  <span className="text-xs text-warning">● Duraklatıldı</span>
+                )}
+                {task.status === "skipped" && (
+                  <span className="text-xs text-danger">Pass geçildi</span>
+                )}
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs text-text-muted">
@@ -150,7 +136,16 @@ export default function TimelineView() {
             </div>
 
             <div className="flex items-center gap-2">
-              {task.status !== "completed" && (
+              {task.status === "pending" && (
+                <button
+                  onClick={() => dispatch(skipTask(task.id))}
+                  className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+                  title="Pass geç"
+                >
+                  <SkipForward size={16} />
+                </button>
+              )}
+              {task.status !== "completed" && task.status !== "skipped" && (
                 <button
                   onClick={() => handleTaskAction(task)}
                   className={`p-2 rounded-lg transition-colors ${
@@ -161,17 +156,40 @@ export default function TimelineView() {
                         : "bg-primary/10 text-primary hover:bg-primary/20"
                   }`}
                 >
-                  <Icon size={16} />
+                  {task.status === "active" ? (
+                    <Pause size={16} />
+                  ) : task.status === "paused" ? (
+                    <Play size={16} />
+                  ) : (
+                    <Play size={16} />
+                  )}
                 </button>
               )}
-              {task.status !== "completed" && task.status !== "pending" && (
+              {task.status === "active" || task.status === "paused" ? (
                 <button
                   onClick={() => dispatch(completeTask(task.id))}
                   className="p-2 rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors"
+                  title="Tamamla"
                 >
                   <CheckCircle size={16} />
                 </button>
-              )}
+              ) : task.status === "pending" ? (
+                <button
+                  onClick={() => dispatch(startTask(task.id))}
+                  className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  title="Başlat"
+                >
+                  <Play size={16} />
+                </button>
+              ) : task.status === "skipped" ? (
+                <button
+                  onClick={() => dispatch(completeTask(task.id))}
+                  className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  title="Tamamlandı işaretle"
+                >
+                  <CheckCircle size={16} />
+                </button>
+              ) : null}
             </div>
           </div>
         );

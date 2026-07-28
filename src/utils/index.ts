@@ -43,8 +43,10 @@ export function formatDuration(ms: number): string {
   return `${hours}sa ${minutes}dk`;
 }
 
-export function getTodayString(): string {
-  return new Date().toISOString().split("T")[0];
+export function getTodayString(dayOffset?: number): string {
+  const d = new Date();
+  if (dayOffset) d.setDate(d.getDate() + dayOffset);
+  return d.toISOString().split("T")[0];
 }
 
 export function timeToTimestamp(timeStr: string, dateStr: string): number {

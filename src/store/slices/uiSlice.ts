@@ -16,6 +16,8 @@ interface UIState {
   viewMode: ViewMode;
   isAddModalOpen: boolean;
   addModalMode: AddModalMode;
+  isEditModalOpen: boolean;
+  editTaskId: string | null;
   activeTimerTaskId: string | null;
   showPreview: boolean;
 
@@ -45,6 +47,8 @@ const uiSlice = createSlice({
     viewMode: "oclock",
     isAddModalOpen: false,
     addModalMode: "manual",
+    isEditModalOpen: false,
+    editTaskId: null,
     activeTimerTaskId: null,
     showPreview: false,
     isPauseModalOpen: false,
@@ -77,6 +81,14 @@ const uiSlice = createSlice({
     closeAddModal: (state) => {
       state.isAddModalOpen = false;
       state.addModalMode = "manual";
+    },
+    openEditModal: (state, action: PayloadAction<string>) => {
+      state.isEditModalOpen = true;
+      state.editTaskId = action.payload;
+    },
+    closeEditModal: (state) => {
+      state.isEditModalOpen = false;
+      state.editTaskId = null;
     },
     setActiveTimerTask: (state, action: PayloadAction<string | null>) => {
       state.activeTimerTaskId = action.payload;
@@ -195,6 +207,8 @@ export const {
   toggleViewMode,
   openAddModal,
   closeAddModal,
+  openEditModal,
+  closeEditModal,
   setActiveTimerTask,
   setShowPreview,
   openPauseModal,

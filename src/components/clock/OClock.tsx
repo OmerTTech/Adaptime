@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { removeTask } from "@/store/slices/routineSlice";
+import { openEditModal } from "@/store/slices/uiSlice";
 import { formatTime, formatDuration } from "@/utils";
+import { Pencil, Trash2 } from "lucide-react";
 
 const SIZE = 420;
 const CX = SIZE / 2;
@@ -67,6 +70,7 @@ function textArcPath(
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 export default function OClock() {
+  const dispatch = useAppDispatch();
   const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
   const [, setTick] = useState(0);
 
@@ -97,7 +101,17 @@ export default function OClock() {
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative select-none">
-        <svg width={500} height={500} viewBox="-40 -40 500 500">
+        <svg width={520} height={520} viewBox="-50 -50 520 520">
+          <defs>
+            {taskRanges.map((task) => {
+              if (task.status === "skipped") return null;
+              const midAngle = task.a1 + task.sweep / 2;
+              const { start, end, sweep } = getTextArc(midAngle, TEXT_SPREAD);
+              const pathD = textArcPath(CX, CY, TEXT_R, start, end, sweep);
+              return <path key={task.id} id={`tp-${task.id}`} d={pathD} />;
+            })}
+          </defs>
+
           <circle
             cx={CX}
             cy={CY}
@@ -121,6 +135,18 @@ export default function OClock() {
                     ? 0.6
                     : 0.7
               }
+            />
+          ))}
+
+          {taskRanges.map((task) => (
+            <circle
+              key={`dot-${task.id}`}
+              cx={polar(CX, CY, OUTER_R, task.a1).x}
+              cy={polar(CX, CY, OUTER_R, task.a1).y}
+              r={4}
+              fill={task.color}
+              stroke="var(--background)"
+              strokeWidth="1.5"
             />
           ))}
 
@@ -204,15 +230,8 @@ export default function OClock() {
 
           {taskRanges.map((task) => {
             if (task.status === "skipped") return null;
-            const midAngle = task.a1 + task.sweep / 2;
-            const { start, end, sweep } = getTextArc(midAngle, TEXT_SPREAD);
-            const pathId = `tp-${task.id}`;
-            const pathD = textArcPath(CX, CY, TEXT_R, start, end, sweep);
             return (
               <g key={`txt-${task.id}`}>
-                <defs>
-                  <path id={pathId} d={pathD} />
-                </defs>
                 <text
                   fontSize="11"
                   fontWeight="600"
@@ -223,7 +242,7 @@ export default function OClock() {
                   }}
                 >
                   <textPath
-                    href={`#${pathId}`}
+                    href={`#tp-${task.id}`}
                     startOffset="50%"
                     textAnchor="middle"
                   >
@@ -252,11 +271,11 @@ export default function OClock() {
       </div>
 
       {tasks.length > 0 && (
-        <div className="flex flex-wrap justify-center gap-2 max-w-[420px]">
+        <div className="flex flex-wrap justify-center gap-2 max-w-[440px]">
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs"
               style={{
                 backgroundColor: task.color + "15",
                 borderColor: task.color + "30",
@@ -271,12 +290,30 @@ export default function OClock() {
                 {formatDuration(task.endTime - task.startTime)}
               </span>
               {task.status === "completed" && (
-                <span className="text-xs ml-1" style={{ color: task.color }}>
+                <span className="text-xs ml-0.5" style={{ color: task.color }}>
                   ✓
                 </span>
               )}
               {task.status === "skipped" && (
-                <span className="text-xs ml-1 text-danger">✕</span>
+                <span className="text-xs ml-0.5 text-danger">✕</span>
+              )}
+              {(task.status === "pending" || task.status === "skipped") && (
+                <>
+                  <button
+                    onClick={() => dispatch(openEditModal(task.id))}
+                    className="ml-1 p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                    title="Düzenle"
+                  >
+                    <Pencil size={12} style={{ color: "var(--text-muted)" }} />
+                  </button>
+                  <button
+                    onClick={() => dispatch(removeTask(task.id))}
+                    className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                    title="Sil"
+                  >
+                    <Trash2 size={12} style={{ color: "#ef4444" }} />
+                  </button>
+                </>
               )}
             </div>
           ))}

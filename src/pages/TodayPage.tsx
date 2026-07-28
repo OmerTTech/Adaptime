@@ -13,6 +13,7 @@ import DayEndTimeBadge from "@/components/ui/DayEndTimeBadge";
 import StreakBadge from "@/components/ui/StreakBadge";
 import AddRoutineFAB from "@/components/routine/AddRoutineFAB";
 import AddTaskModal from "@/components/routine/AddTaskModal";
+import EditTaskModal from "@/components/routine/EditTaskModal";
 import AIAddTaskModal from "@/components/routine/AIAddTaskModal";
 import PauseOptionsModal from "@/components/modals/PauseOptionsModal";
 import FlowStateModal from "@/components/modals/FlowStateModal";
@@ -48,6 +49,7 @@ export default function TodayPage() {
   }, [token, routine, dispatch]);
 
   const isAddModalOpen = useAppSelector((state) => state.ui.isAddModalOpen);
+  const isEditModalOpen = useAppSelector((state) => state.ui.isEditModalOpen);
   const addModalMode = useAppSelector((state) => state.ui.addModalMode);
   const isPauseModalOpen = useAppSelector((state) => state.ui.isPauseModalOpen);
   const isFlowModalOpen = useAppSelector((state) => state.ui.isFlowModalOpen);
@@ -120,6 +122,7 @@ export default function TodayPage() {
       <AddRoutineFAB />
       {isAddModalOpen && addModalMode === "ai" && <AIAddTaskModal />}
       {isAddModalOpen && addModalMode === "manual" && <AddTaskModal />}
+      {isEditModalOpen && <EditTaskModal />}
       {isPauseModalOpen && <PauseOptionsModal />}
       {isFlowModalOpen && <FlowStateModal />}
       {isEarlyFinishModalOpen && <EarlyFinishModal />}

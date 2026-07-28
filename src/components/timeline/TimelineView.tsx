@@ -8,6 +8,7 @@ import {
   SkipForward,
   Clock,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   startTask,
@@ -17,7 +18,7 @@ import {
   updateTask,
   removeTask,
 } from "@/store/slices/routineSlice";
-import { openPauseModal } from "@/store/slices/uiSlice";
+import { openPauseModal, openEditModal } from "@/store/slices/uiSlice";
 
 export default function TimelineView() {
   const tasks = useAppSelector(
@@ -217,13 +218,22 @@ export default function TimelineView() {
                 </button>
               )}
               {(task.status === "pending" || task.status === "skipped") && (
-                <button
-                  onClick={() => dispatch(removeTask(task.id))}
-                  className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
-                  title="Sil"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <>
+                  <button
+                    onClick={() => dispatch(openEditModal(task.id))}
+                    className="p-2 rounded-lg bg-surface-hover text-text-muted hover:text-text transition-colors"
+                    title="Düzenle"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => dispatch(removeTask(task.id))}
+                    className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+                    title="Sil"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </>
               )}
             </div>
           </div>

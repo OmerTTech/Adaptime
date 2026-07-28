@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useAppDispatch } from "@/store/hooks";
-import { addTask } from "@/store/slices/routineSlice";
-import { closeAddModal } from "@/store/slices/uiSlice";
-import { getTodayString, timeToTimestamp, getRandomColor } from "@/utils";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { updateTask } from "@/store/slices/routineSlice";
+import { closeEditModal } from "@/store/slices/uiSlice";
+import { getTodayString, timeToTimestamp, timestampToTime } from "@/utils";
 import {
   Dialog,
   DialogContent,
@@ -23,19 +23,30 @@ const PRESET_COLORS = [
   "#F7DC6F",
 ];
 
-export default function AddTaskModal() {
+export default function EditTaskModal() {
   const dispatch = useAppDispatch();
-  const [title, setTitle] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [selectedColor, setSelectedColor] = useState(getRandomColor());
+  const taskId = useAppSelector((s) => s.ui.editTaskId);
+  const task = useAppSelector((s) =>
+    s.routine.currentRoutine?.tasks.find((t) => t.id === taskId),
+  );
+
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [startTime, setStartTime] = useState(
+    task ? timestampToTime(task.startTime) : "",
+  );
+  const [endTime, setEndTime] = useState(
+    task ? timestampToTime(task.endTime) : "",
+  );
+  const [selectedColor, setSelectedColor] = useState(task?.color ?? "");
   const today = getTodayString();
+
+  if (!task) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !startTime || !endTime) return;
 
-    const start = timeToTimestamp(startTime, today);
+    let start = timeToTimestamp(startTime, today);
     let end = timeToTimestamp(endTime, today);
 
     if (end <= start) {
@@ -45,25 +56,25 @@ export default function AddTaskModal() {
     if (end <= start) return;
 
     dispatch(
-      addTask({
-        title,
-        startTime: start,
-        endTime: end,
-        color: selectedColor,
+      updateTask({
+        id: task.id,
+        updates: {
+          title,
+          startTime: start,
+          endTime: end,
+          color: selectedColor,
+        },
       }),
     );
 
-    setTitle("");
-    setStartTime("");
-    setEndTime("");
-    dispatch(closeAddModal());
+    dispatch(closeEditModal());
   };
 
   return (
-    <Dialog open onOpenChange={() => dispatch(closeAddModal())}>
+    <Dialog open onOpenChange={() => dispatch(closeEditModal())}>
       <DialogContent className="bg-surface border-border sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-text">Yeni Görev Ekle</DialogTitle>
+          <DialogTitle className="text-text">Görevi Düzenle</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -130,7 +141,7 @@ export default function AddTaskModal() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => dispatch(closeAddModal())}
+              onClick={() => dispatch(closeEditModal())}
               className="flex-1 border-border text-text"
             >
               İptal
@@ -139,7 +150,7 @@ export default function AddTaskModal() {
               type="submit"
               className="flex-1 bg-primary hover:bg-primary-hover text-white"
             >
-              Ekle
+              Kaydet
             </Button>
           </div>
         </form>

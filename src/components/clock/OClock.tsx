@@ -42,13 +42,33 @@ function isInRange(a: number, start: number, end: number) {
 
 function getTextArc(midAngle: number, spread: number) {
   if (midAngle >= 45 && midAngle < 135) {
-    return { start: midAngle - spread, end: midAngle + spread, sweep: 1 };
+    return {
+      start: midAngle - spread,
+      end: midAngle + spread,
+      sweep: 1,
+      side: "right" as const,
+    };
   } else if (midAngle >= 135 && midAngle < 225) {
-    return { start: midAngle + spread, end: midAngle - spread, sweep: 0 };
+    return {
+      start: midAngle + spread,
+      end: midAngle - spread,
+      sweep: 0,
+      side: "left" as const,
+    };
   } else if (midAngle >= 225 && midAngle < 315) {
-    return { start: midAngle + spread, end: midAngle - spread, sweep: 0 };
+    return {
+      start: midAngle + spread,
+      end: midAngle - spread,
+      sweep: 0,
+      side: "left" as const,
+    };
   } else {
-    return { start: midAngle - spread, end: midAngle + spread, sweep: 0 };
+    return {
+      start: midAngle - spread,
+      end: midAngle + spread,
+      sweep: 1,
+      side: "right" as const,
+    };
   }
 }
 
@@ -65,6 +85,15 @@ function textArcPath(
   const diff = (end - start + 360) % 360;
   const large = diff > 180 ? 1 : 0;
   return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
+}
+
+function calcFontSize(sweepDeg: number) {
+  const minS = 20,
+    maxS = 180,
+    minF = 10,
+    maxF = 16;
+  const t = Math.min(Math.max((sweepDeg - minS) / (maxS - minS), 0), 1);
+  return Math.round((minF + t * (maxF - minF)) * 10) / 10;
 }
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -92,7 +121,24 @@ export default function OClock() {
     let a1 = timeToAngle(task.startTime);
     let a2 = timeToAngle(task.endTime);
     if (a2 <= a1) a2 += 360;
-    return { ...task, a1, a2, sweep: a2 - a1 };
+    const sweep = a2 - a1;
+    const midAngle = a1 + sweep / 2;
+    const {
+      start,
+      end,
+      sweep: textSweep,
+      side,
+    } = getTextArc(midAngle, TEXT_SPREAD);
+    return {
+      ...task,
+      a1,
+      a2,
+      sweep,
+      textStart: start,
+      textEnd: end,
+      textSweep,
+      textSide: side,
+    };
   });
 
   const getTaskForAngle = (angle: number) =>
@@ -101,13 +147,18 @@ export default function OClock() {
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative select-none">
-        <svg width={520} height={520} viewBox="-50 -50 520 520">
+        <svg width={560} height={560} viewBox="-70 -70 560 560">
           <defs>
             {taskRanges.map((task) => {
               if (task.status === "skipped") return null;
-              const midAngle = task.a1 + task.sweep / 2;
-              const { start, end, sweep } = getTextArc(midAngle, TEXT_SPREAD);
-              const pathD = textArcPath(CX, CY, TEXT_R, start, end, sweep);
+              const pathD = textArcPath(
+                CX,
+                CY,
+                TEXT_R,
+                task.textStart,
+                task.textEnd,
+                task.textSweep,
+              );
               return <path key={task.id} id={`tp-${task.id}`} d={pathD} />;
             })}
           </defs>
@@ -230,10 +281,11 @@ export default function OClock() {
 
           {taskRanges.map((task) => {
             if (task.status === "skipped") return null;
+            const fontSize = calcFontSize(task.sweep);
             return (
               <g key={`txt-${task.id}`}>
                 <text
-                  fontSize="11"
+                  fontSize={fontSize}
                   fontWeight="600"
                   fill="var(--text)"
                   style={{
@@ -245,6 +297,7 @@ export default function OClock() {
                     href={`#tp-${task.id}`}
                     startOffset="50%"
                     textAnchor="middle"
+                    {...({ side: task.textSide } as any)}
                   >
                     {task.title}
                   </textPath>

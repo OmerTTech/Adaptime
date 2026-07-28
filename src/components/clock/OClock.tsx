@@ -5,9 +5,10 @@ import { formatTime, formatDuration } from "@/utils";
 const SIZE = 420;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
-const OUTER_R = 195;
-const ARC_R = 165;
-const INNER_R = 130;
+const OUTER_R = 185;
+const INNER_R = 120;
+const TEXT_R = OUTER_R + 24;
+const TEXT_SPREAD = 35;
 
 function polar(cx: number, cy: number, r: number, deg: number) {
   const rad = ((deg - 90) * Math.PI) / 180;
@@ -26,6 +27,41 @@ function timeToAngle(ts: number) {
   const h = d.getHours() % 12;
   const m = d.getMinutes();
   return (h + m / 60) * 30;
+}
+
+function isInRange(a: number, start: number, end: number) {
+  a = ((a % 360) + 360) % 360;
+  const s = ((start % 360) + 360) % 360;
+  const e = ((end % 360) + 360) % 360;
+  if (s <= e) return a >= s && a <= e;
+  return a >= s || a <= e;
+}
+
+function getTextArc(midAngle: number, spread: number) {
+  if (midAngle >= 45 && midAngle < 135) {
+    return { start: midAngle - spread, end: midAngle + spread, sweep: 1 };
+  } else if (midAngle >= 135 && midAngle < 225) {
+    return { start: midAngle + spread, end: midAngle - spread, sweep: 0 };
+  } else if (midAngle >= 225 && midAngle < 315) {
+    return { start: midAngle + spread, end: midAngle - spread, sweep: 0 };
+  } else {
+    return { start: midAngle - spread, end: midAngle + spread, sweep: 0 };
+  }
+}
+
+function textArcPath(
+  cx: number,
+  cy: number,
+  r: number,
+  start: number,
+  end: number,
+  sweep: number,
+) {
+  const s = polar(cx, cy, r, start);
+  const e = polar(cx, cy, r, end);
+  const diff = (end - start + 360) % 360;
+  const large = diff > 180 ? 1 : 0;
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
 }
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -48,10 +84,20 @@ export default function OClock() {
   const minDeg = m * 6 + sec * 0.1;
   const secDeg = sec * 6;
 
+  const taskRanges = tasks.map((task) => {
+    let a1 = timeToAngle(task.startTime);
+    let a2 = timeToAngle(task.endTime);
+    if (a2 <= a1) a2 += 360;
+    return { ...task, a1, a2, sweep: a2 - a1 };
+  });
+
+  const getTaskForAngle = (angle: number) =>
+    taskRanges.find((t) => isInRange(angle, t.a1, t.a2));
+
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative select-none">
-        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        <svg width={500} height={500} viewBox="-40 -40 500 500">
           <circle
             cx={CX}
             cy={CY}
@@ -61,8 +107,48 @@ export default function OClock() {
             strokeWidth="2"
           />
 
+          {taskRanges.map((task) => (
+            <path
+              key={`ol-${task.id}`}
+              d={arcPath(CX, CY, OUTER_R, task.a1, task.a2)}
+              fill="none"
+              stroke={task.color}
+              strokeWidth="2.5"
+              opacity={
+                task.status === "active"
+                  ? 1
+                  : task.status === "paused"
+                    ? 0.6
+                    : 0.7
+              }
+            />
+          ))}
+
+          {Array.from({ length: 60 }).map((_, i) => {
+            const angle = i * 6;
+            const task = getTaskForAngle(angle);
+            const isHour = i % 5 === 0;
+            const r1 = isHour ? OUTER_R - 7 : OUTER_R - 3;
+            const r2 = OUTER_R - (isHour ? 16 : 9);
+            const p1 = polar(CX, CY, r1, angle);
+            const p2 = polar(CX, CY, r2, angle);
+            return (
+              <line
+                key={i}
+                x1={p1.x}
+                y1={p1.y}
+                x2={p2.x}
+                y2={p2.y}
+                stroke={task ? task.color : "var(--text-muted)"}
+                strokeWidth={isHour ? 2.5 : 1}
+                opacity={task ? 1 : isHour ? 0.9 : 0.4}
+                strokeLinecap="round"
+              />
+            );
+          })}
+
           {HOURS.map((num, i) => {
-            const pos = polar(CX, CY, 120, i * 30);
+            const pos = polar(CX, CY, 108, i * 30);
             return (
               <text
                 key={num}
@@ -71,7 +157,7 @@ export default function OClock() {
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="var(--text)"
-                fontSize="17"
+                fontSize="16"
                 fontWeight="700"
                 style={{ pointerEvents: "none" }}
               >
@@ -80,87 +166,13 @@ export default function OClock() {
             );
           })}
 
-          {Array.from({ length: 60 }).map((_, i) => {
-            const isHour = i % 5 === 0;
-            const r1 = isHour ? OUTER_R - 8 : OUTER_R - 4;
-            const r2 = OUTER_R - (isHour ? 18 : 10);
-            const a = i * 6;
-            const p1 = polar(CX, CY, r1, a);
-            const p2 = polar(CX, CY, r2, a);
-            return (
-              <line
-                key={i}
-                x1={p1.x}
-                y1={p1.y}
-                x2={p2.x}
-                y2={p2.y}
-                stroke="var(--text-muted)"
-                strokeWidth={isHour ? 2.5 : 1}
-                opacity={isHour ? 0.9 : 0.4}
-                strokeLinecap="round"
-              />
-            );
-          })}
-
-          {tasks.map((task) => {
-            let a1 = timeToAngle(task.startTime);
-            let a2 = timeToAngle(task.endTime);
-            if (a2 <= a1) a2 += 360;
-            const sweep = a2 - a1;
-            if (sweep <= 0) return null;
-
-            const isActive = task.status === "active";
-            const isPaused = task.status === "paused";
-            const isSkipped = task.status === "skipped";
-            const sw = isActive ? 40 : isPaused ? 32 : 30;
-            const op = isActive ? 1 : isPaused ? 0.5 : 0.6;
-            const mid = polar(CX, CY, ARC_R + 14, a1 + sweep / 2);
-
-            return (
-              <g key={task.id}>
-                <path
-                  d={arcPath(CX, CY, ARC_R, a1, a2)}
-                  fill="none"
-                  stroke={task.color}
-                  strokeWidth={sw}
-                  strokeLinecap="butt"
-                  opacity={op}
-                  style={
-                    isActive
-                      ? { filter: `drop-shadow(0 0 10px ${task.color}80)` }
-                      : undefined
-                  }
-                />
-                {!isSkipped && (
-                  <text
-                    x={mid.x}
-                    y={mid.y}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fill="var(--text)"
-                    fontSize="11"
-                    fontWeight="600"
-                    style={{
-                      pointerEvents: "none",
-                      textShadow: "0 1px 4px rgba(0,0,0,0.9)",
-                    }}
-                  >
-                    {task.title.length > 6
-                      ? task.title.slice(0, 6) + "…"
-                      : task.title}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
           <circle cx={CX} cy={CY} r={INNER_R} fill="var(--background)" />
 
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 68, hourDeg).x}
-            y2={polar(CX, CY, 68, hourDeg).y}
+            x2={polar(CX, CY, 60, hourDeg).x}
+            y2={polar(CX, CY, 60, hourDeg).y}
             stroke="var(--text)"
             strokeWidth="5"
             strokeLinecap="round"
@@ -169,18 +181,18 @@ export default function OClock() {
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 100, minDeg).x}
-            y2={polar(CX, CY, 100, minDeg).y}
+            x2={polar(CX, CY, 95, minDeg).x}
+            y2={polar(CX, CY, 95, minDeg).y}
             stroke="var(--text)"
             strokeWidth="3"
             strokeLinecap="round"
             style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.3))" }}
           />
           <line
-            x1={polar(CX, CY, -18, secDeg).x}
-            y1={polar(CX, CY, -18, secDeg).y}
-            x2={polar(CX, CY, 110, secDeg).x}
-            y2={polar(CX, CY, 110, secDeg).y}
+            x1={polar(CX, CY, -15, secDeg).x}
+            y1={polar(CX, CY, -15, secDeg).y}
+            x2={polar(CX, CY, 105, secDeg).x}
+            y2={polar(CX, CY, 105, secDeg).y}
             stroke="#6366f1"
             strokeWidth="1.5"
             strokeLinecap="round"
@@ -189,11 +201,43 @@ export default function OClock() {
 
           <circle cx={CX} cy={CY} r={7} fill="#6366f1" />
           <circle cx={CX} cy={CY} r={3} fill="var(--background)" />
+
+          {taskRanges.map((task) => {
+            if (task.status === "skipped") return null;
+            const midAngle = task.a1 + task.sweep / 2;
+            const { start, end, sweep } = getTextArc(midAngle, TEXT_SPREAD);
+            const pathId = `tp-${task.id}`;
+            const pathD = textArcPath(CX, CY, TEXT_R, start, end, sweep);
+            return (
+              <g key={`txt-${task.id}`}>
+                <defs>
+                  <path id={pathId} d={pathD} />
+                </defs>
+                <text
+                  fontSize="11"
+                  fontWeight="600"
+                  fill="var(--text)"
+                  style={{
+                    pointerEvents: "none",
+                    textShadow: "0 1px 4px rgba(0,0,0,0.9)",
+                  }}
+                >
+                  <textPath
+                    href={`#${pathId}`}
+                    startOffset="50%"
+                    textAnchor="middle"
+                  >
+                    {task.title}
+                  </textPath>
+                </text>
+              </g>
+            );
+          })}
         </svg>
 
         <div
           className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-          style={{ marginTop: -4 }}
+          style={{ marginTop: -2 }}
         >
           <span
             className="text-3xl font-bold tabular-nums"

@@ -1,13 +1,21 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { formatTime, formatDuration } from "@/utils";
-import { Play, Pause, CheckCircle, SkipForward, Clock } from "lucide-react";
+import {
+  Play,
+  Pause,
+  CheckCircle,
+  SkipForward,
+  Clock,
+  Trash2,
+} from "lucide-react";
 import {
   startTask,
   pauseTask,
   completeTask,
   skipTask,
   updateTask,
+  removeTask,
 } from "@/store/slices/routineSlice";
 import { openPauseModal } from "@/store/slices/uiSlice";
 
@@ -206,6 +214,15 @@ export default function TimelineView() {
                   title="Tamamlandı işaretle"
                 >
                   <CheckCircle size={16} />
+                </button>
+              )}
+              {(task.status === "pending" || task.status === "skipped") && (
+                <button
+                  onClick={() => dispatch(removeTask(task.id))}
+                  className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+                  title="Sil"
+                >
+                  <Trash2 size={16} />
                 </button>
               )}
             </div>

@@ -9,7 +9,6 @@ import {
   PURGE,
   REGISTER,
 } from "redux-persist";
-import createWebStorage from "redux-persist/lib/storage/createWebStorage";
 
 const createNoopStorage = () => ({
   getItem() {
@@ -23,10 +22,28 @@ const createNoopStorage = () => ({
   },
 });
 
-const storage =
-  typeof window !== "undefined"
-    ? createWebStorage("local")
-    : createNoopStorage();
+const storage = (() => {
+  if (typeof window === "undefined") return createNoopStorage();
+  try {
+    const s = window.localStorage;
+    const key = "__redux_persist_test__";
+    s.setItem(key, "test");
+    s.removeItem(key);
+    return {
+      getItem(key: string) {
+        return Promise.resolve(s.getItem(key));
+      },
+      setItem(key: string, value: string) {
+        return Promise.resolve(s.setItem(key, value));
+      },
+      removeItem(key: string) {
+        return Promise.resolve(s.removeItem(key));
+      },
+    };
+  } catch {
+    return createNoopStorage();
+  }
+})();
 
 import routineReducer from "./slices/routineSlice";
 import uiReducer from "./slices/uiSlice";

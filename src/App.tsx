@@ -1,4 +1,6 @@
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import ThemeToggle from "@/components/ThemeToggle";
 import LoginPage from "@/pages/LoginPage";
 import TodayPage from "@/pages/TodayPage";
 
@@ -22,9 +24,12 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+        <ThemeToggle />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

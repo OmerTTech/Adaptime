@@ -82,16 +82,17 @@ function textArcPath(
 ) {
   const s = polar(cx, cy, r, start);
   const e = polar(cx, cy, r, end);
-  const diff = (end - start + 360) % 360;
+  const diff =
+    sweep === 1 ? (end - start + 360) % 360 : (start - end + 360) % 360;
   const large = diff > 180 ? 1 : 0;
   return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
 }
 
 function calcFontSize(sweepDeg: number) {
-  const minS = 20,
-    maxS = 180,
-    minF = 10,
-    maxF = 16;
+  const minS = 15,
+    maxS = 240,
+    minF = 9,
+    maxF = 18;
   const t = Math.min(Math.max((sweepDeg - minS) / (maxS - minS), 0), 1);
   return Math.round((minF + t * (maxF - minF)) * 10) / 10;
 }
@@ -307,15 +308,15 @@ export default function OClock() {
           })}
         </svg>
 
-        <div
-          className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-          style={{ marginTop: -2 }}
-        >
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span
-            className="text-3xl font-bold tabular-nums"
+            className="text-3xl font-extrabold tabular-nums px-3 py-1 rounded-lg"
             style={{
               color: "var(--text)",
-              textShadow: "0 1px 4px rgba(0,0,0,0.3)",
+              backgroundColor:
+                "color-mix(in srgb, var(--background) 85%, transparent)",
+              backdropFilter: "blur(4px)",
+              textShadow: "0 2px 8px rgba(0,0,0,0.5)",
             }}
           >
             {formatTime(now.getTime())}

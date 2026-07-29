@@ -41,7 +41,14 @@ function isInRange(a: number, start: number, end: number) {
 }
 
 function getTextArc(midAngle: number, spread: number) {
-  if (midAngle >= 45 && midAngle < 135) {
+  if (midAngle >= 45 && midAngle < 90) {
+    return {
+      start: midAngle - spread,
+      end: midAngle + spread,
+      sweep: 1,
+      side: "right" as const,
+    };
+  } else if (midAngle >= 90 && midAngle < 135) {
     return {
       start: midAngle + spread,
       end: midAngle - spread,
@@ -55,7 +62,14 @@ function getTextArc(midAngle: number, spread: number) {
       sweep: 0,
       side: "right" as const,
     };
-  } else if (midAngle >= 225 && midAngle < 315) {
+  } else if (midAngle >= 225 && midAngle < 270) {
+    return {
+      start: midAngle + spread,
+      end: midAngle - spread,
+      sweep: 0,
+      side: "left" as const,
+    };
+  } else if (midAngle >= 270 && midAngle < 315) {
     return {
       start: midAngle - spread,
       end: midAngle + spread,

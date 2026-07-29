@@ -78,7 +78,7 @@ export default function FocusTimer() {
       ? now - currentTask.pausedAt
       : 0;
   const elapsed = Math.max(0, now - currentTask.startTime);
-  const remaining = Math.max(0, currentTask.endTime - now);
+  const remaining = Math.max(0, currentTask.endTime - now + pausedTime);
   const remainingMinutes = Math.ceil(remaining / 60000);
 
   const activeStart = currentTask.startedAt ?? currentTask.startTime;

@@ -62,7 +62,8 @@ function calculateCut(
     return { id: t.id, newStart: t.startTime, newEnd: t.endTime };
   });
 
-  const newDayEndTime = tasks[tasks.length - 1].endTime;
+  const newDayEndTime =
+    activeIndex === tasks.length - 1 ? newEnd : tasks[tasks.length - 1].endTime;
 
   return {
     mode: "cut",

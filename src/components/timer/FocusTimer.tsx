@@ -73,25 +73,24 @@ export default function FocusTimer() {
   if (!currentTask) return null;
 
   const totalDuration = currentTask.endTime - currentTask.startTime;
-  const activeStart = currentTask.startedAt ?? currentTask.startTime;
   const pausedTime =
     currentTask.status === "paused" && currentTask.pausedAt
       ? now - currentTask.pausedAt
       : 0;
-  const elapsed = Math.max(
+  const elapsed = Math.max(0, now - currentTask.startTime);
+  const remaining = Math.max(0, currentTask.endTime - now);
+  const remainingMinutes = Math.ceil(remaining / 60000);
+
+  const activeStart = currentTask.startedAt ?? currentTask.startTime;
+  const workedMs = Math.max(
     0,
     now - activeStart - currentTask.pausedDuration - pausedTime,
   );
-  const effectiveDuration =
-    currentTask.endTime - currentTask.startTime - currentTask.pausedDuration;
-  const remaining = Math.max(0, effectiveDuration - elapsed);
-  const remainingMinutes = Math.ceil(remaining / 60000);
-
   const preGap = currentTask.startedAt
     ? Math.max(0, currentTask.startedAt - currentTask.startTime)
     : 0;
   const preGapPct = totalDuration > 0 ? (preGap / totalDuration) * 100 : 0;
-  const workedPct = totalDuration > 0 ? (elapsed / totalDuration) * 100 : 0;
+  const workedPct = totalDuration > 0 ? (workedMs / totalDuration) * 100 : 0;
   const pausePct =
     totalDuration > 0 && currentTask.status === "paused"
       ? (pausedTime / totalDuration) * 100

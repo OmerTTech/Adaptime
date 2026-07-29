@@ -46,14 +46,16 @@ export function formatDuration(ms: number): string {
 export function getTodayString(dayOffset?: number): string {
   const d = new Date();
   if (dayOffset) d.setDate(d.getDate() + dayOffset);
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function timeToTimestamp(timeStr: string, dateStr: string): number {
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const date = new Date(dateStr + "T00:00:00");
-  date.setHours(hours, minutes, 0, 0);
-  return date.getTime();
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d, hours, minutes, 0, 0).getTime();
 }
 
 export function timestampToTime(ts: number): string {

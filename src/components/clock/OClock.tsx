@@ -43,10 +43,10 @@ function isInRange(a: number, start: number, end: number) {
 function getTextArc(midAngle: number, spread: number) {
   if (midAngle >= 45 && midAngle < 135) {
     return {
-      start: midAngle - spread,
-      end: midAngle + spread,
-      sweep: 1,
-      side: "left" as const,
+      start: midAngle + spread,
+      end: midAngle - spread,
+      sweep: 0,
+      side: "right" as const,
     };
   } else if (midAngle >= 135 && midAngle < 225) {
     return {
@@ -57,10 +57,10 @@ function getTextArc(midAngle: number, spread: number) {
     };
   } else if (midAngle >= 225 && midAngle < 315) {
     return {
-      start: midAngle + spread,
-      end: midAngle - spread,
-      sweep: 0,
-      side: "right" as const,
+      start: midAngle - spread,
+      end: midAngle + spread,
+      sweep: 1,
+      side: "left" as const,
     };
   } else {
     return {
@@ -249,8 +249,8 @@ export default function OClock() {
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 80, hourDeg).x}
-            y2={polar(CX, CY, 80, hourDeg).y}
+            x2={polar(CX, CY, 95, hourDeg).x}
+            y2={polar(CX, CY, 95, hourDeg).y}
             stroke="var(--text)"
             strokeWidth="5"
             strokeLinecap="round"
@@ -259,8 +259,8 @@ export default function OClock() {
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 105, minDeg).x}
-            y2={polar(CX, CY, 105, minDeg).y}
+            x2={polar(CX, CY, 115, minDeg).x}
+            y2={polar(CX, CY, 115, minDeg).y}
             stroke="var(--text)"
             strokeWidth="3"
             strokeLinecap="round"
@@ -269,8 +269,8 @@ export default function OClock() {
           <line
             x1={polar(CX, CY, -15, secDeg).x}
             y1={polar(CX, CY, -15, secDeg).y}
-            x2={polar(CX, CY, 105, secDeg).x}
-            y2={polar(CX, CY, 105, secDeg).y}
+            x2={polar(CX, CY, 120, secDeg).x}
+            y2={polar(CX, CY, 120, secDeg).y}
             stroke="#6366f1"
             strokeWidth="1.5"
             strokeLinecap="round"

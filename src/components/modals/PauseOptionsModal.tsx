@@ -18,10 +18,10 @@ const OPTIONS = [
   {
     mode: "cut" as const,
     label: "Kes",
-    sublabel: "Süreden düş",
+    sublabel: "Süreden düş, değiştirme",
     icon: Scissors,
     color: "#ef4444",
-    description: "Aktif görevin süresinden düşülür. Diğer görevler değişmez.",
+    description: "Kaybedilen zaman geri gelmez. Zaman çizelgesi aynen korunur.",
   },
   {
     mode: "balance" as const,
@@ -79,7 +79,7 @@ export default function PauseOptionsModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl">
+      <div className="bg-surface border border-border rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-text">Duraklatıldı</h2>

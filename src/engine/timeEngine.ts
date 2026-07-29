@@ -49,27 +49,22 @@ function calculateShift(
 
 function calculateCut(
   tasks: TaskBlock[],
-  activeIndex: number,
+  _activeIndex: number,
   pauseDuration: number,
 ): PauseImpact {
-  const active = tasks[activeIndex];
-  const newEnd = active.endTime - pauseDuration;
+  const affected = tasks.map((t) => ({
+    id: t.id,
+    newStart: t.startTime,
+    newEnd: t.endTime,
+  }));
 
-  const affected = tasks.map((t, i) => {
-    if (i === activeIndex) {
-      return { id: t.id, newStart: t.startTime, newEnd };
-    }
-    return { id: t.id, newStart: t.startTime, newEnd: t.endTime };
-  });
-
-  const newDayEndTime =
-    activeIndex === tasks.length - 1 ? newEnd : tasks[tasks.length - 1].endTime;
+  const newDayEndTime = tasks[tasks.length - 1].endTime;
 
   return {
     mode: "cut",
     newDayEndTime,
     affectedTasks: affected,
-    description: `"${active.title}" görevi ${Math.round(pauseDuration / 60000)} dakika kısaltıldı. Diğer görevler etkilenmedi.`,
+    description: `Kaybedilen ${Math.round(pauseDuration / 60000)} dakika kesildi. Zaman çizelgesi değişmedi.`,
   };
 }
 

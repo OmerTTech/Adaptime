@@ -68,24 +68,32 @@ export default function TimelineView() {
     return base - task.pausedDuration;
   };
 
+  const getActiveStart = (task: (typeof tasks)[0]) => {
+    return task.startedAt ?? task.startTime;
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto space-y-2">
       {tasks.map((task, i) => {
         const duration = getEffectiveDuration(task);
+        const activeStart = getActiveStart(task);
         const pausedExtra =
           task.status === "paused" && task.pausedAt
             ? Date.now() - task.pausedAt
             : 0;
-        const elapsed =
+        const total = task.endTime - task.startTime;
+        const preGap = task.startedAt
+          ? Math.max(0, task.startedAt - task.startTime)
+          : 0;
+        const preGapPct = total > 0 ? (preGap / total) * 100 : 0;
+        const elapsedActive =
           task.status === "active"
-            ? Math.min(
-                Date.now() - task.startTime - task.pausedDuration,
-                duration,
-              )
+            ? Math.max(0, Date.now() - activeStart - task.pausedDuration)
             : 0;
-        const progress =
-          duration > 0
-            ? Math.min(((elapsed + pausedExtra) / duration) * 100, 100)
+        const activePct = total > 0 ? (elapsedActive / total) * 100 : 0;
+        const pausePct =
+          total > 0 && task.status === "paused"
+            ? (pausedExtra / total) * 100
             : 0;
 
         return (
@@ -152,14 +160,34 @@ export default function TimelineView() {
                 </span>
               </div>
               {(task.status === "active" || task.status === "paused") && (
-                <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
+                <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden flex">
+                  {preGapPct > 0 && (
+                    <div
+                      className="h-full transition-all duration-1000"
+                      style={{
+                        width: `${preGapPct}%`,
+                        backgroundColor: "var(--text-muted)",
+                        opacity: 0.2,
+                      }}
+                    />
+                  )}
                   <div
                     className="h-full rounded-full transition-all duration-1000"
                     style={{
-                      width: `${progress}%`,
+                      width: `${Math.max(0, activePct)}%`,
                       backgroundColor: task.color,
+                      opacity: task.status === "paused" ? 0.6 : 1,
                     }}
                   />
+                  {task.status === "paused" && pausePct > 0 && (
+                    <div
+                      className="h-full rounded-full transition-all duration-1000"
+                      style={{
+                        width: `${pausePct}%`,
+                        backgroundColor: "#f59e0b",
+                      }}
+                    />
+                  )}
                 </div>
               )}
             </div>

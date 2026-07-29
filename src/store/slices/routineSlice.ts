@@ -122,6 +122,7 @@ const routineSlice = createSlice({
       if (task) {
         task.status = "active";
         task.pausedAt = undefined;
+        if (!task.startedAt) task.startedAt = Date.now();
       }
     },
     pauseTask: (state, action: PayloadAction<string>) => {

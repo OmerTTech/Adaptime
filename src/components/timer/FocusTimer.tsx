@@ -72,21 +72,29 @@ export default function FocusTimer() {
 
   if (!currentTask) return null;
 
-  const effectiveDuration =
-    currentTask.endTime - currentTask.startTime - currentTask.pausedDuration;
+  const totalDuration = currentTask.endTime - currentTask.startTime;
+  const activeStart = currentTask.startedAt ?? currentTask.startTime;
   const pausedTime =
     currentTask.status === "paused" && currentTask.pausedAt
       ? now - currentTask.pausedAt
       : 0;
   const elapsed = Math.max(
     0,
-    now - currentTask.startTime - currentTask.pausedDuration - pausedTime,
+    now - activeStart - currentTask.pausedDuration - pausedTime,
   );
+  const effectiveDuration =
+    currentTask.endTime - currentTask.startTime - currentTask.pausedDuration;
   const remaining = Math.max(0, effectiveDuration - elapsed);
   const remainingMinutes = Math.ceil(remaining / 60000);
-  const progress =
-    effectiveDuration > 0
-      ? Math.min((elapsed / effectiveDuration) * 100, 100)
+
+  const preGap = currentTask.startedAt
+    ? Math.max(0, currentTask.startedAt - currentTask.startTime)
+    : 0;
+  const preGapPct = totalDuration > 0 ? (preGap / totalDuration) * 100 : 0;
+  const workedPct = totalDuration > 0 ? (elapsed / totalDuration) * 100 : 0;
+  const pausePct =
+    totalDuration > 0 && currentTask.status === "paused"
+      ? (pausedTime / totalDuration) * 100
       : 0;
 
   const elapsedSec = Math.floor(elapsed / 1000);
@@ -162,14 +170,34 @@ export default function FocusTimer() {
           )}
         </div>
 
-        <div className="h-2 bg-border rounded-full overflow-hidden mb-6">
+        <div className="h-2.5 bg-border rounded-full overflow-hidden mb-6 flex">
+          {preGapPct > 0 && (
+            <div
+              className="h-full transition-all duration-1000"
+              style={{
+                width: `${preGapPct}%`,
+                backgroundColor: "var(--text-muted)",
+                opacity: 0.2,
+              }}
+            />
+          )}
           <div
-            className="h-full rounded-full transition-all duration-1000"
+            className="h-full transition-all duration-1000"
             style={{
-              width: `${progress}%`,
+              width: `${Math.max(0, workedPct)}%`,
               backgroundColor: currentTask.color,
+              opacity: currentTask.status === "paused" ? 0.6 : 1,
             }}
           />
+          {currentTask.status === "paused" && pausePct > 0 && (
+            <div
+              className="h-full transition-all duration-1000"
+              style={{
+                width: `${pausePct}%`,
+                backgroundColor: "#f59e0b",
+              }}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-center gap-3">

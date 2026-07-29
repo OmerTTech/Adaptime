@@ -17,6 +17,7 @@ export interface TaskBlock {
   originalDuration: number;
   color: string;
   status: TaskStatus;
+  startedAt?: number;
   pausedAt?: number;
   pausedDuration: number;
   flowExtensions: number;

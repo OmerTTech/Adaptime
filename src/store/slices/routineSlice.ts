@@ -5,6 +5,27 @@ import {
 } from "@reduxjs/toolkit";
 import type { TaskBlock, DayRoutine, PreviewState } from "@/types";
 import { getTodayString, generateId, getRandomColor } from "@/utils";
+
+function normalizeTaskDates(
+  tasks: TaskBlock[],
+  targetDate: string,
+): TaskBlock[] {
+  const [y, m, d] = targetDate.split("-").map(Number);
+  const targetMidnight = new Date(y, m - 1, d).getTime();
+  return tasks.map((task) => {
+    const taskMidnight = new Date(task.startTime).setHours(0, 0, 0, 0);
+    const dayDiff = Math.round((targetMidnight - taskMidnight) / 86400000);
+    if (dayDiff > 0 && dayDiff < 30) {
+      const shift = dayDiff * 86400000;
+      return {
+        ...task,
+        startTime: task.startTime + shift,
+        endTime: task.endTime + shift,
+      };
+    }
+    return task;
+  });
+}
 import { routineApi } from "@/services/api";
 
 interface RoutineState {
@@ -192,6 +213,17 @@ const routineSlice = createSlice({
         ...state.currentRoutine.tasks.map((t) => t.endTime),
       );
     },
+    migrateDates: (state) => {
+      if (!state.currentRoutine) return;
+      state.currentRoutine.tasks = normalizeTaskDates(
+        state.currentRoutine.tasks,
+        getTodayString(),
+      );
+      state.currentRoutine.dayEndTime = Math.max(
+        ...state.currentRoutine.tasks.map((t) => t.endTime),
+        state.currentRoutine.dayEndTime,
+      );
+    },
     resetDay: (state) => {
       if (state.currentRoutine) {
         state.history.push(state.currentRoutine);
@@ -211,6 +243,8 @@ const routineSlice = createSlice({
   extraReducers: (builder) => {
     builder.addCase(loadTodayRoutine.fulfilled, (state, action) => {
       if (action.payload) {
+        const today = getTodayString();
+        action.payload.tasks = normalizeTaskDates(action.payload.tasks, today);
         state.currentRoutine = action.payload;
       }
       state.lastSynced = Date.now();
@@ -233,6 +267,7 @@ export const applyModifiedTasks = routineSlice.actions.applyModifiedTasks;
 export const setPreview = routineSlice.actions.setPreview;
 export const clearPreview = routineSlice.actions.clearPreview;
 export const recalcDayEndTime = routineSlice.actions.recalcDayEndTime;
+export const migrateDates = routineSlice.actions.migrateDates;
 export const resetDay = routineSlice.actions.resetDay;
 export const abandonDay = routineSlice.actions.abandonDay;
 export default routineSlice.reducer;

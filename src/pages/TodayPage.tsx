@@ -3,6 +3,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   loadTodayRoutine,
   saveRoutineToBackend,
+  migrateDates,
 } from "@/store/slices/routineSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import OClock from "@/components/clock/OClock";
@@ -34,6 +35,11 @@ export default function TodayPage() {
       dispatch(loadTodayRoutine(token));
     }
   }, [token, dispatch]);
+
+  // Fix task timestamps that are 24h off due to old date bug
+  useEffect(() => {
+    dispatch(migrateDates());
+  }, [dispatch]);
 
   // Sync to backend on changes (debounced 1.5s)
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);

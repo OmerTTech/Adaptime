@@ -4,6 +4,7 @@ import {
   loadTodayRoutine,
   saveRoutineToBackend,
   migrateDates,
+  skipTask,
 } from "@/store/slices/routineSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import OClock from "@/components/clock/OClock";
@@ -40,6 +41,21 @@ export default function TodayPage() {
   useEffect(() => {
     dispatch(migrateDates());
   }, [dispatch]);
+
+  // Auto-skip pending tasks whose endTime has passed
+  useEffect(() => {
+    const check = () => {
+      const now = Date.now();
+      tasks.forEach((t) => {
+        if (t.status === "pending" && t.endTime < now) {
+          dispatch(skipTask(t.id));
+        }
+      });
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
+  }, [tasks, dispatch]);
 
   // Sync to backend on changes (debounced 1.5s)
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,12 +130,14 @@ export default function TodayPage() {
       <main className="max-w-4xl mx-auto px-4 py-8">
         {hasActiveTask && <FocusTimer />}
 
-        <div className={`flex justify-center ${hasActiveTask ? "mt-8" : ""}`}>
-          {viewMode === "oclock" ? <OClock /> : <TimelineView />}
-        </div>
+        {viewMode === "oclock" && (
+          <div className={`flex justify-center ${hasActiveTask ? "mt-8" : ""}`}>
+            <OClock />
+          </div>
+        )}
 
-        {tasks.length > 0 && viewMode === "oclock" && !hasActiveTask && (
-          <div className="mt-8">
+        {tasks.length > 0 && (
+          <div className={viewMode === "timeline" ? "" : "mt-8"}>
             <TimelineView />
           </div>
         )}

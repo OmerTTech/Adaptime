@@ -46,28 +46,28 @@ function getTextArc(midAngle: number, spread: number) {
       start: midAngle - spread,
       end: midAngle + spread,
       sweep: 1,
-      side: "right" as const,
+      side: "left" as const,
     };
   } else if (midAngle >= 135 && midAngle < 225) {
     return {
       start: midAngle + spread,
       end: midAngle - spread,
       sweep: 0,
-      side: "left" as const,
+      side: "right" as const,
     };
   } else if (midAngle >= 225 && midAngle < 315) {
     return {
       start: midAngle + spread,
       end: midAngle - spread,
       sweep: 0,
-      side: "left" as const,
+      side: "right" as const,
     };
   } else {
     return {
       start: midAngle - spread,
       end: midAngle + spread,
       sweep: 1,
-      side: "right" as const,
+      side: "left" as const,
     };
   }
 }
@@ -249,8 +249,8 @@ export default function OClock() {
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 60, hourDeg).x}
-            y2={polar(CX, CY, 60, hourDeg).y}
+            x2={polar(CX, CY, 80, hourDeg).x}
+            y2={polar(CX, CY, 80, hourDeg).y}
             stroke="var(--text)"
             strokeWidth="5"
             strokeLinecap="round"
@@ -259,8 +259,8 @@ export default function OClock() {
           <line
             x1={CX}
             y1={CY}
-            x2={polar(CX, CY, 95, minDeg).x}
-            y2={polar(CX, CY, 95, minDeg).y}
+            x2={polar(CX, CY, 105, minDeg).x}
+            y2={polar(CX, CY, 105, minDeg).y}
             stroke="var(--text)"
             strokeWidth="3"
             strokeLinecap="round"

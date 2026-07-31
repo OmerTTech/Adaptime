@@ -196,14 +196,12 @@ const routineSlice = createSlice({
       );
       if (task) {
         task.status = "completed";
-        // Check if all tasks completed
-        const allDone = state.currentRoutine.tasks.every(
-          (t) => t.status === "completed",
-        );
-        if (allDone) {
-          state.currentRoutine.streak += 1;
-        }
+        state.currentRoutine.streak += 1;
       }
+    },
+    resetStreak: (state) => {
+      if (!state.currentRoutine) return;
+      state.currentRoutine.streak = 0;
     },
     applyModifiedTasks: (state, action: PayloadAction<TaskBlock[]>) => {
       if (!state.currentRoutine) return;
@@ -283,4 +281,5 @@ export const recalcDayEndTime = routineSlice.actions.recalcDayEndTime;
 export const migrateDates = routineSlice.actions.migrateDates;
 export const resetDay = routineSlice.actions.resetDay;
 export const abandonDay = routineSlice.actions.abandonDay;
+export const resetStreak = routineSlice.actions.resetStreak;
 export default routineSlice.reducer;

@@ -365,7 +365,7 @@ export default function OClock() {
               {task.status === "skipped" && (
                 <span className="text-xs ml-0.5 text-danger">✕</span>
               )}
-              {(task.status === "pending" || task.status === "skipped") && (
+              {(task.status === "pending" || task.status === "skipped" || task.status === "completed") && (
                 <>
                   <button
                     onClick={() => dispatch(openEditModal(task.id))}

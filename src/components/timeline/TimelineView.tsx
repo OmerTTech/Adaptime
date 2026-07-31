@@ -245,7 +245,7 @@ export default function TimelineView() {
                   <CheckCircle size={16} />
                 </button>
               )}
-              {(task.status === "pending" || task.status === "skipped") && (
+              {(task.status === "pending" || task.status === "skipped" || task.status === "completed") && (
                 <>
                   <button
                     onClick={() => dispatch(openEditModal(task.id))}

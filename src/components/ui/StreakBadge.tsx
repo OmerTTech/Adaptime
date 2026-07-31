@@ -12,7 +12,7 @@ export default function StreakBadge() {
     <div className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-xs relative">
       <Flame size={12} className="text-warning" />
       <span className="text-text font-medium">{streak}</span>
-      <span className="text-text-muted">seri</span>
+      <span className="text-text-muted">Seri</span>
       {streak > 0 && (
         <button
           onClick={() => dispatch(resetStreak())}

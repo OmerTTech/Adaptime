@@ -119,7 +119,7 @@ export default function FocusTimer() {
       ? (pausedTime / totalDuration) * 100
       : 0;
 
-  const remaining = Math.max(0, currentTask.endTime - now + pausedTime);
+  const remaining = Math.max(0, currentTask.endTime - now);
   const remainingMinutes = Math.ceil(remaining / 60000);
 
   const elapsedSec = Math.floor(elapsed / 1000);

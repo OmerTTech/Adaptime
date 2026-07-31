@@ -108,6 +108,7 @@ export default function FocusTimer() {
     0,
     now - activeStart - currentTask.pausedDuration - pausedTime,
   );
+  const elapsed = Math.max(0, now - currentTask.startTime);
   const preGap = currentTask.startedAt
     ? Math.max(0, currentTask.startedAt - currentTask.startTime)
     : 0;
@@ -123,6 +124,11 @@ export default function FocusTimer() {
     currentTask.endTime - now + currentTask.pausedDuration + pausedTime,
   );
   const remainingMinutes = Math.ceil(remaining / 60000);
+
+  const elapsedSec = Math.floor(elapsed / 1000);
+  const eHours = Math.floor(elapsedSec / 3600);
+  const eMinutes = Math.floor((elapsedSec % 3600) / 60);
+  const eSeconds = elapsedSec % 60;
 
   const focusSec = Math.floor(workedMs / 1000);
   const fHours = Math.floor(focusSec / 3600);
@@ -189,9 +195,9 @@ export default function FocusTimer() {
             className="text-6xl font-mono font-bold tabular-nums"
             style={{ color: currentTask.color }}
           >
-            {fHours > 0 && `${fHours}:`}
-            {String(fMinutes).padStart(2, "0")}:
-            {String(fSeconds).padStart(2, "0")}
+            {eHours > 0 && `${eHours}:`}
+            {String(eMinutes).padStart(2, "0")}:
+            {String(eSeconds).padStart(2, "0")}
           </div>
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <p className="text-xs text-text-muted">geçen süre</p>
@@ -205,20 +211,27 @@ export default function FocusTimer() {
               </button>
             )}
           </div>
-          {currentTask.status === "paused" && (
-            <p className="text-xs text-warning mt-1">
-              duraklatma {pHours > 0 && `${pHours}:`}
-              {String(pMinutes).padStart(2, "0")}:
-              {String(pSeconds).padStart(2, "0")}
-            </p>
-          )}
-          {currentTask.status === "active" && (
-            <p className="text-xs text-text-muted mt-1">
-              kalan {rHours > 0 && `${rHours}:`}
-              {String(rMinutes).padStart(2, "0")}:
-              {String(rSeconds).padStart(2, "0")}
-            </p>
-          )}
+          <div className="flex items-center justify-center gap-3 mt-2 text-xs">
+            <span className="text-text-muted">
+              odaklanma {fHours > 0 && `${fHours}:`}
+              {String(fMinutes).padStart(2, "0")}:
+              {String(fSeconds).padStart(2, "0")}
+            </span>
+            {currentTask.status === "paused" && (
+              <span className="text-warning">
+                duraklatma {pHours > 0 && `${pHours}:`}
+                {String(pMinutes).padStart(2, "0")}:
+                {String(pSeconds).padStart(2, "0")}
+              </span>
+            )}
+            {currentTask.status === "active" && (
+              <span className="text-text-muted">
+                kalan {rHours > 0 && `${rHours}:`}
+                {String(rMinutes).padStart(2, "0")}:
+                {String(rSeconds).padStart(2, "0")}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="h-2.5 bg-border rounded-full overflow-hidden mb-6 flex">

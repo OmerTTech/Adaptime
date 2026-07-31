@@ -146,6 +146,18 @@ const routineSlice = createSlice({
         if (!task.startedAt) task.startedAt = Date.now();
       }
     },
+    adjustStartedAt: (
+      state,
+      action: PayloadAction<{ id: string; startedAt: number }>,
+    ) => {
+      if (!state.currentRoutine) return;
+      const task = state.currentRoutine.tasks.find(
+        (t) => t.id === action.payload.id,
+      );
+      if (task) {
+        task.startedAt = action.payload.startedAt;
+      }
+    },
     pauseTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
@@ -259,6 +271,7 @@ export const addTask = routineSlice.actions.addTask;
 export const removeTask = routineSlice.actions.removeTask;
 export const updateTask = routineSlice.actions.updateTask;
 export const startTask = routineSlice.actions.startTask;
+export const adjustStartedAt = routineSlice.actions.adjustStartedAt;
 export const pauseTask = routineSlice.actions.pauseTask;
 export const resumeTask = routineSlice.actions.resumeTask;
 export const skipTask = routineSlice.actions.skipTask;

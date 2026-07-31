@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { formatTime } from "@/utils";
+import { formatTime, timestampToTime } from "@/utils";
 import {
   Play,
   Pause,
@@ -8,8 +8,11 @@ import {
   SkipForward,
   Zap,
   TimerOff,
+  Pencil,
 } from "lucide-react";
-import { completeTask, pauseTask, skipTask } from "@/store/slices/routineSlice";
+import { completeTask, pauseTask, skipTask, adjustStartedAt } from "@/store/slices/routineSlice";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   openPauseModal,
   openFlowModal,
@@ -30,6 +33,8 @@ export default function FocusTimer() {
     (state) => state.ui.isEarlyFinishModalOpen,
   );
   const [now, setNow] = useState(Date.now());
+  const [isEditStartDialogOpen, setIsEditStartDialogOpen] = useState(false);
+  const [adjustedStartTime, setAdjustedStartTime] = useState("");
 
   const activeTask = tasks.find((t) => t.status === "active");
   const pausedTask = tasks.find((t) => t.status === "paused");
@@ -69,6 +74,26 @@ export default function FocusTimer() {
     if (!currentTask) return;
     dispatch(openEarlyFinishModal({ taskId: currentTask.id }));
   }, [currentTask, dispatch]);
+
+  const handleOpenEditStart = useCallback(() => {
+    if (!currentTask) return;
+    setAdjustedStartTime(timestampToTime(currentTask.startTime));
+    setIsEditStartDialogOpen(true);
+  }, [currentTask]);
+
+  const handleConfirmEditStart = useCallback(() => {
+    if (!currentTask || !adjustedStartTime) return;
+    const [h, m] = adjustedStartTime.split(":").map(Number);
+    const newStartedAt = new Date(currentTask.startTime);
+    newStartedAt.setHours(h, m, 0, 0);
+    dispatch(
+      adjustStartedAt({
+        id: currentTask.id,
+        startedAt: newStartedAt.getTime(),
+      }),
+    );
+    setIsEditStartDialogOpen(false);
+  }, [currentTask, adjustedStartTime, dispatch]);
 
   if (!currentTask) return null;
 
@@ -114,6 +139,7 @@ export default function FocusTimer() {
     isEarlyFinishModalOpen;
 
   return (
+    <>
     <div
       className={`w-full max-w-md mx-auto transition-opacity ${dimmed ? "opacity-30 pointer-events-none" : ""}`}
     >
@@ -159,7 +185,18 @@ export default function FocusTimer() {
             {String(eMinutes).padStart(2, "0")}:
             {String(eSeconds).padStart(2, "0")}
           </div>
-          <p className="text-xs text-text-muted mt-2">geçen süre</p>
+          <div className="flex items-center justify-center gap-1.5 mt-2">
+            <p className="text-xs text-text-muted">geçen süre</p>
+            {preGap > 0 && (
+              <button
+                onClick={handleOpenEditStart}
+                className="p-0.5 rounded hover:bg-surface-hover text-text-muted hover:text-text transition-colors"
+                title="Başlangıç zamanını düzelt"
+              >
+                <Pencil size={11} />
+              </button>
+            )}
+          </div>
           {currentTask.status === "active" && (
             <p className="text-xs text-text-muted mt-1">
               kalan {rHours > 0 && `${rHours}:`}
@@ -267,5 +304,38 @@ export default function FocusTimer() {
         </div>
       </div>
     </div>
+
+    <Dialog
+      open={isEditStartDialogOpen}
+      onOpenChange={setIsEditStartDialogOpen}
+    >
+      <DialogContent>
+        <DialogTitle>Başlangıç Zamanını Düzelt</DialogTitle>
+        <p className="text-sm text-text-muted">
+          Bu göreve gerçekte başladığınız zamanı girin.
+        </p>
+        <div className="my-2">
+          <Input
+            type="time"
+            value={adjustedStartTime}
+            onChange={(e) => setAdjustedStartTime(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            onClick={() => setIsEditStartDialogOpen(false)}
+            className="px-4 py-2 rounded-lg border border-border text-text-muted hover:text-text transition-colors text-sm"
+          >
+            İptal
+          </button>
+          <button
+            onClick={handleConfirmEditStart}
+            className="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors text-sm font-medium"
+          >
+            Onayla
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
-}

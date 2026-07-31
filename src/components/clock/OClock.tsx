@@ -328,7 +328,7 @@ export default function OClock() {
             style={{
               color: "var(--text)",
               backgroundColor:
-                "color-mix(in srgb, var(--background) 85%, transparent)",
+                "color-mix(in srgb, var(--background) 50%, transparent)",
               backdropFilter: "blur(4px)",
               textShadow: "0 2px 8px rgba(0,0,0,0.5)",
             }}

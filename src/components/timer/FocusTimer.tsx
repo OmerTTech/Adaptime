@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { formatTime, timestampToTime } from "@/utils";
 import {
@@ -139,7 +139,7 @@ export default function FocusTimer() {
     isEarlyFinishModalOpen;
 
   return (
-    <>
+    <Fragment>
     <div
       className={`w-full max-w-md mx-auto transition-opacity ${dimmed ? "opacity-30 pointer-events-none" : ""}`}
     >
@@ -337,5 +337,6 @@ export default function FocusTimer() {
         </div>
       </DialogContent>
     </Dialog>
-    </>
+    </Fragment>
   );
+}

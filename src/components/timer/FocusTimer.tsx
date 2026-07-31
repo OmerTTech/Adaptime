@@ -102,9 +102,6 @@ export default function FocusTimer() {
     currentTask.status === "paused" && currentTask.pausedAt
       ? now - currentTask.pausedAt
       : 0;
-  const elapsed = Math.max(0, now - currentTask.startTime);
-  const remaining = Math.max(0, currentTask.endTime - now + pausedTime);
-  const remainingMinutes = Math.ceil(remaining / 60000);
 
   const activeStart = currentTask.startedAt ?? currentTask.startTime;
   const workedMs = Math.max(
@@ -121,10 +118,21 @@ export default function FocusTimer() {
       ? (pausedTime / totalDuration) * 100
       : 0;
 
-  const elapsedSec = Math.floor(elapsed / 1000);
-  const eHours = Math.floor(elapsedSec / 3600);
-  const eMinutes = Math.floor((elapsedSec % 3600) / 60);
-  const eSeconds = elapsedSec % 60;
+  const remaining = Math.max(
+    0,
+    currentTask.endTime - now + currentTask.pausedDuration + pausedTime,
+  );
+  const remainingMinutes = Math.ceil(remaining / 60000);
+
+  const focusSec = Math.floor(workedMs / 1000);
+  const fHours = Math.floor(focusSec / 3600);
+  const fMinutes = Math.floor((focusSec % 3600) / 60);
+  const fSeconds = focusSec % 60;
+
+  const pauseSec = Math.floor(pausedTime / 1000);
+  const pHours = Math.floor(pauseSec / 3600);
+  const pMinutes = Math.floor((pauseSec % 3600) / 60);
+  const pSeconds = pauseSec % 60;
 
   const remSec = Math.floor(remaining / 1000);
   const rHours = Math.floor(remSec / 3600);
@@ -181,9 +189,9 @@ export default function FocusTimer() {
             className="text-6xl font-mono font-bold tabular-nums"
             style={{ color: currentTask.color }}
           >
-            {eHours > 0 && `${eHours}:`}
-            {String(eMinutes).padStart(2, "0")}:
-            {String(eSeconds).padStart(2, "0")}
+            {fHours > 0 && `${fHours}:`}
+            {String(fMinutes).padStart(2, "0")}:
+            {String(fSeconds).padStart(2, "0")}
           </div>
           <div className="flex items-center justify-center gap-1.5 mt-2">
             <p className="text-xs text-text-muted">geçen süre</p>
@@ -197,6 +205,13 @@ export default function FocusTimer() {
               </button>
             )}
           </div>
+          {currentTask.status === "paused" && (
+            <p className="text-xs text-warning mt-1">
+              duraklatma {pHours > 0 && `${pHours}:`}
+              {String(pMinutes).padStart(2, "0")}:
+              {String(pSeconds).padStart(2, "0")}
+            </p>
+          )}
           {currentTask.status === "active" && (
             <p className="text-xs text-text-muted mt-1">
               kalan {rHours > 0 && `${rHours}:`}

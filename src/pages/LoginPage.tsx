@@ -58,8 +58,20 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, googleProvider);
       const idToken = await result.user.getIdToken();
       await loginWithGoogle(idToken);
-    } catch {
-      setError("Google ile giriş başarısız. Lütfen tekrar deneyin.");
+    } catch (err) {
+      console.error("[Google] popup hatasi:", err);
+      const code = (err as { code?: string })?.code;
+      if (code === "auth/unauthorized-domain") {
+        setError(
+          "Netlify domain'i Firebase'de yetkili degil. Firebase Console → Authentication → Settings → Authorized domains'e adaptime.netlify.app ekleyin."
+        );
+      } else {
+        setError(
+          code
+            ? `Google ile giriş başarısız (${code}). Lütfen tekrar deneyin.`
+            : "Google ile giriş başarısız. Lütfen tekrar deneyin."
+        );
+      }
     } finally {
       setIsGoogleLoading(false);
     }

@@ -52,6 +52,12 @@ export default function LoginPage() {
         );
       } else if (code) {
         setError(`Google ile giriş tamamlanamadı (${code}). Lütfen tekrar deneyin.`);
+      } else {
+        setError(
+          `Google ile giriş tamamlanamadı (bilinmeyen hata: ${
+            err instanceof Error ? err.message : String(err)
+          }). Lütfen tekrar deneyin.`
+        );
       }
     }
   };

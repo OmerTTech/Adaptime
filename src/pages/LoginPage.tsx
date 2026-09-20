@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { signInWithRedirect, getRedirectResult } from "firebase/auth";
+import { signInWithPopup } from "firebase/auth";
 import { auth, googleProvider, FIREBASE_CONFIGURED } from "@/services/firebase";
 import { Sparkles } from "lucide-react";
 
@@ -35,37 +35,6 @@ export default function LoginPage() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleRedirectResult = async () => {
-    if (!auth) return;
-    try {
-      const result = await getRedirectResult(auth);
-      if (result?.user) {
-        const idToken = await result.user.getIdToken();
-        await loginWithGoogle(idToken);
-      }
-    } catch (err) {
-      console.error("[Google] redirect sonuc hatasi:", err);
-      const code = (err as { code?: string })?.code;
-      if (code === "auth/unauthorized-domain") {
-        setError(
-          "adaptime.netlify.app, Firebase'de yetkili degil. Firebase Console → Authentication → Settings → Authorized domains'e ekleyin."
-        );
-      } else if (code) {
-        setError(`Google ile giriş tamamlanamadı (${code}). Lütfen tekrar deneyin.`);
-      } else {
-        setError(
-          `Google ile giriş tamamlanamadı (bilinmeyen hata: ${
-            err instanceof Error ? err.message : String(err)
-          }). Lütfen tekrar deneyin.`
-        );
-      }
-    }
-  };
-
-  useEffect(() => {
-    handleRedirectResult();
-  }, []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !name) return;
@@ -83,10 +52,12 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     if (!auth) return;
-    setError(null);
     setIsGoogleLoading(true);
+    setError(null);
     try {
-      await signInWithRedirect(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const idToken = await result.user.getIdToken();
+      await loginWithGoogle(idToken);
     } catch (err) {
       console.error("[Google] redirect baslatma hatasi:", err);
       const code = (err as { code?: string })?.code;

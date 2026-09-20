@@ -1,6 +1,7 @@
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { closeFlowModal, setPendingFlowImpact } from "@/store/slices/uiSlice";
 import { calculateFlowImpact } from "@/engine/flowState";
+import { isScheduled } from "@/types";
 import { Zap, ArrowRight, Scissors, X } from "lucide-react";
 
 const FLOW_OPTIONS = [
@@ -39,7 +40,7 @@ export default function FlowStateModal() {
   if (!isOpen || !flowTaskId) return null;
 
   const flowTask = tasks.find((t) => t.id === flowTaskId);
-  if (!flowTask) return null;
+  if (!flowTask || !isScheduled(flowTask)) return null;
 
   const handleSelect = (mode: "shift" | "eatNext", minutes: number) => {
     const impact = calculateFlowImpact(tasks, flowTaskId, minutes, mode);
@@ -109,6 +110,7 @@ export default function FlowStateModal() {
             {EXTRA_MINUTES_OPTIONS.map((min) => (
               <button
                 key={min}
+                onClick={() => handleSelect("shift", min)}
                 className="flex-1 py-2 rounded-lg bg-surface border border-border text-text text-sm font-medium hover:border-warning/50 hover:bg-warning/5 transition-all tabular-nums"
               >
                 +{min}dk

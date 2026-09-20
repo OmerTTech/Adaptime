@@ -7,7 +7,7 @@ import {
 } from "react";
 import { authApi } from "@/services/api";
 
-interface User {
+export interface User {
   id: string;
   email: string;
   name: string;
@@ -19,12 +19,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   loginWithDemo: (email: string, name: string) => Promise<void>;
-  loginWithGoogle: (
-    googleId: string,
-    email: string,
-    name: string,
-    avatar?: string,
-  ) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -60,20 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(result.user);
   }, []);
 
-  const loginWithGoogle = useCallback(
-    async (googleId: string, email: string, name: string, avatar?: string) => {
-      const result = await authApi.googleLogin({
-        googleId,
-        email,
-        name,
-        avatar,
-      });
-      localStorage.setItem("adaptime-token", result.token);
-      setToken(result.token);
-      setUser(result.user);
-    },
-    [],
-  );
+  const loginWithGoogle = useCallback(async (idToken: string) => {
+    const result = await authApi.googleLogin({ idToken });
+    localStorage.setItem("adaptime-token", result.token);
+    setToken(result.token);
+    setUser(result.user);
+  }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("adaptime-token");

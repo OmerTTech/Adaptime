@@ -4,6 +4,7 @@ import {
   type PayloadAction,
 } from "@reduxjs/toolkit";
 import type { TaskBlock, DayRoutine, PreviewState } from "@/types";
+import { isScheduled } from "@/types";
 import { getTodayString, generateId, getRandomColor } from "@/utils";
 
 function normalizeTaskDates(
@@ -13,14 +14,15 @@ function normalizeTaskDates(
   const [y, m, d] = targetDate.split("-").map(Number);
   const targetMidnight = new Date(y, m - 1, d).getTime();
   return tasks.map((task) => {
-    const taskMidnight = new Date(task.startTime).setHours(0, 0, 0, 0);
+    if (!isScheduled(task)) return task;
+    const taskMidnight = new Date(task.startTime!).setHours(0, 0, 0, 0);
     const dayDiff = Math.round((targetMidnight - taskMidnight) / 86400000);
     if (dayDiff > 0 && dayDiff < 30) {
       const shift = dayDiff * 86400000;
       return {
         ...task,
-        startTime: task.startTime + shift,
-        endTime: task.endTime + shift,
+        startTime: task.startTime! + shift,
+        endTime: task.endTime! + shift,
       };
     }
     return task;
@@ -32,6 +34,7 @@ interface RoutineState {
   currentRoutine: DayRoutine | null;
   preview: PreviewState | null;
   history: DayRoutine[];
+  historyLoaded: boolean;
   lastSynced: number | null;
 }
 
@@ -54,13 +57,30 @@ export const loadTodayRoutine = createAsyncThunk(
   },
 );
 
+export const loadRoutineHistory = createAsyncThunk(
+  "routine/loadHistory",
+  async ({ token, limit }: { token: string; limit?: number }) => {
+    const data = await routineApi.getHistory(token, limit);
+    return data.map((r) => ({
+      id: r._id,
+      date: r.date,
+      dayEndTime: r.dayEndTime,
+      streak: r.streak,
+      tasks: r.tasks.map(({ _id, ...rest }) => ({
+        ...rest,
+        id: _id,
+      })) as TaskBlock[],
+    })) as DayRoutine[];
+  },
+);
+
 export const saveRoutineToBackend = createAsyncThunk(
   "routine/save",
   async ({ routine, token }: { routine: DayRoutine; token: string }) => {
     await routineApi.save(
       {
         date: routine.date,
-        tasks: routine.tasks.map(({ pausedAt: _pausedAt, ...t }) => t),
+        tasks: routine.tasks,
         dayEndTime: routine.dayEndTime,
         streak: routine.streak,
       },
@@ -86,6 +106,7 @@ const routineSlice = createSlice({
     currentRoutine: getInitialRoutine(),
     preview: null,
     history: [],
+    historyLoaded: false,
     lastSynced: null,
   } as RoutineState,
   reducers: {
@@ -93,29 +114,46 @@ const routineSlice = createSlice({
       state,
       action: PayloadAction<{
         title: string;
-        startTime: number;
-        endTime: number;
+        startTime?: number;
+        endTime?: number;
+        estimatedMinutes?: number;
         color?: string;
       }>,
     ) => {
       if (!state.currentRoutine) return;
+      const { title, startTime, endTime, estimatedMinutes, color } =
+        action.payload;
+      const scheduled =
+        typeof startTime === "number" &&
+        typeof endTime === "number" &&
+        endTime > startTime;
       const task: TaskBlock = {
         id: generateId(),
-        title: action.payload.title,
-        startTime: action.payload.startTime,
-        endTime: action.payload.endTime,
-        originalDuration: action.payload.endTime - action.payload.startTime,
-        color: action.payload.color || getRandomColor(),
+        title,
+        ...(scheduled
+          ? {
+              startTime,
+              endTime,
+              originalDuration: endTime! - startTime!,
+            }
+          : { estimatedMinutes }),
+        color: color || getRandomColor(),
         status: "pending",
         pausedDuration: 0,
         flowExtensions: 0,
       };
       state.currentRoutine.tasks.push(task);
-      state.currentRoutine.tasks.sort((a, b) => a.startTime - b.startTime);
-      state.currentRoutine.dayEndTime = Math.max(
-        state.currentRoutine.dayEndTime,
-        task.endTime,
-      );
+      if (scheduled) {
+        state.currentRoutine.tasks.sort((a, b) => {
+          if (!isScheduled(a)) return 1;
+          if (!isScheduled(b)) return -1;
+          return a.startTime! - b.startTime!;
+        });
+        state.currentRoutine.dayEndTime = Math.max(
+          state.currentRoutine.dayEndTime,
+          endTime!,
+        );
+      }
     },
     removeTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
@@ -140,7 +178,7 @@ const routineSlice = createSlice({
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload,
       );
-      if (task) {
+      if (task && isScheduled(task)) {
         task.status = "active";
         task.pausedAt = undefined;
         if (!task.startedAt) task.startedAt = Date.now();
@@ -196,18 +234,19 @@ const routineSlice = createSlice({
       );
       if (task) {
         task.status = "completed";
-        state.currentRoutine.streak += 1;
       }
     },
     resetStreak: (state) => {
       if (!state.currentRoutine) return;
       state.currentRoutine.streak = 0;
     },
+    setStreak: (state, action: PayloadAction<number>) => {
+      if (!state.currentRoutine) return;
+      state.currentRoutine.streak = action.payload;
+    },
     applyModifiedTasks: (state, action: PayloadAction<TaskBlock[]>) => {
       if (!state.currentRoutine) return;
       state.currentRoutine.tasks = action.payload;
-      // Using options = flexibility = reward
-      state.currentRoutine.streak += 1;
       state.preview = null;
     },
     setPreview: (state, action: PayloadAction<PreviewState | null>) => {
@@ -219,9 +258,15 @@ const routineSlice = createSlice({
     recalcDayEndTime: (state) => {
       if (!state.currentRoutine || state.currentRoutine.tasks.length === 0)
         return;
-      state.currentRoutine.dayEndTime = Math.max(
-        ...state.currentRoutine.tasks.map((t) => t.endTime),
-      );
+      const scheduledEnds = state.currentRoutine.tasks
+        .filter(isScheduled)
+        .map((t) => t.endTime!)
+        .filter((v) => typeof v === "number");
+      if (scheduledEnds.length === 0) {
+        state.currentRoutine.dayEndTime = state.currentRoutine.dayEndTime || 0;
+        return;
+      }
+      state.currentRoutine.dayEndTime = Math.max(...scheduledEnds);
     },
     migrateDates: (state) => {
       if (!state.currentRoutine) return;
@@ -229,9 +274,35 @@ const routineSlice = createSlice({
         state.currentRoutine.tasks,
         getTodayString(),
       );
+      const scheduledEnds = state.currentRoutine.tasks
+        .filter(isScheduled)
+        .map((t) => t.endTime!)
+        .filter((v) => typeof v === "number");
       state.currentRoutine.dayEndTime = Math.max(
-        ...state.currentRoutine.tasks.map((t) => t.endTime),
+        ...scheduledEnds,
         state.currentRoutine.dayEndTime,
+      );
+    },
+    scheduleTask: (
+      state,
+      action: PayloadAction<{ id: string; startTime: number; endTime: number }>,
+    ) => {
+      if (!state.currentRoutine) return;
+      const task = state.currentRoutine.tasks.find(
+        (t) => t.id === action.payload.id,
+      );
+      if (!task) return;
+      task.startTime = action.payload.startTime;
+      task.endTime = action.payload.endTime;
+      task.originalDuration = action.payload.endTime - action.payload.startTime;
+      state.currentRoutine.tasks.sort((a, b) => {
+        if (!isScheduled(a)) return 1;
+        if (!isScheduled(b)) return -1;
+        return a.startTime! - b.startTime!;
+      });
+      state.currentRoutine.dayEndTime = Math.max(
+        state.currentRoutine.dayEndTime,
+        action.payload.endTime,
       );
     },
     resetDay: (state) => {
@@ -249,6 +320,13 @@ const routineSlice = createSlice({
       state.currentRoutine = getInitialRoutine();
       state.preview = null;
     },
+    resetRoutine: (state) => {
+      state.currentRoutine = getInitialRoutine();
+      state.preview = null;
+      state.history = [];
+      state.historyLoaded = false;
+      state.lastSynced = null;
+    },
   },
   extraReducers: (builder) => {
     builder.addCase(loadTodayRoutine.fulfilled, (state, action) => {
@@ -258,6 +336,10 @@ const routineSlice = createSlice({
         state.currentRoutine = action.payload;
       }
       state.lastSynced = Date.now();
+    });
+    builder.addCase(loadRoutineHistory.fulfilled, (state, action) => {
+      state.history = action.payload;
+      state.historyLoaded = true;
     });
     builder.addCase(saveRoutineToBackend.fulfilled, (state, action) => {
       state.lastSynced = action.payload;
@@ -279,7 +361,10 @@ export const setPreview = routineSlice.actions.setPreview;
 export const clearPreview = routineSlice.actions.clearPreview;
 export const recalcDayEndTime = routineSlice.actions.recalcDayEndTime;
 export const migrateDates = routineSlice.actions.migrateDates;
+export const scheduleTask = routineSlice.actions.scheduleTask;
 export const resetDay = routineSlice.actions.resetDay;
 export const abandonDay = routineSlice.actions.abandonDay;
 export const resetStreak = routineSlice.actions.resetStreak;
+export const setStreak = routineSlice.actions.setStreak;
+export const resetRoutine = routineSlice.actions.resetRoutine;
 export default routineSlice.reducer;

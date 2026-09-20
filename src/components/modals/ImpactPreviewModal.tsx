@@ -257,8 +257,8 @@ export default function ImpactPreviewModal() {
                       <div className="flex items-center gap-2 tabular-nums">
                         {changed && (
                           <span className="text-text-muted line-through">
-                            {formatTime(task.startTime)}-
-                            {formatTime(task.endTime)}
+                            {formatTime(task.startTime ?? at.newStart)}-
+                            {formatTime(task.endTime ?? at.newEnd)}
                           </span>
                         )}
                         <span

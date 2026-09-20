@@ -1,4 +1,5 @@
 import type { TaskBlock, FlowImpact, FlowMode } from "@/types";
+import { isScheduled } from "@/types";
 
 export function calculateFlowImpact(
   tasks: TaskBlock[],
@@ -6,12 +7,13 @@ export function calculateFlowImpact(
   extraMinutes: number,
   mode: FlowMode,
 ): FlowImpact {
-  const activeIndex = tasks.findIndex((t) => t.id === activeTaskId);
+  const scheduledTasks = tasks.filter(isScheduled);
+  const activeIndex = scheduledTasks.findIndex((t) => t.id === activeTaskId);
   if (activeIndex === -1) {
     return {
       mode,
       extraMinutes,
-      newDayEndTime: tasks[tasks.length - 1]?.endTime ?? Date.now(),
+      newDayEndTime: scheduledTasks[scheduledTasks.length - 1]?.endTime ?? Date.now(),
       affectedTasks: [],
       description: "Aktif görev bulunamadı",
     };
@@ -20,13 +22,13 @@ export function calculateFlowImpact(
   const extraMs = extraMinutes * 60000;
 
   if (mode === "shift") {
-    const affected = tasks.map((t) => ({
+    const affected = scheduledTasks.map((t) => ({
       id: t.id,
-      newStart: t.startTime + extraMs,
-      newEnd: t.endTime + extraMs,
+      newStart: t.startTime! + extraMs,
+      newEnd: t.endTime! + extraMs,
     }));
 
-    const newDayEndTime = tasks[tasks.length - 1].endTime + extraMs;
+    const newDayEndTime = scheduledTasks[scheduledTasks.length - 1].endTime! + extraMs;
 
     return {
       mode: "shift",
@@ -37,20 +39,20 @@ export function calculateFlowImpact(
     };
   }
 
-  const active = tasks[activeIndex];
-  const newActiveEnd = active.endTime + extraMs;
+  const active = scheduledTasks[activeIndex];
+  const newActiveEnd = active.endTime! + extraMs;
 
-  const affected = tasks.map((t, i) => {
+  const affected = scheduledTasks.map((t, i) => {
     if (i === activeIndex) {
-      return { id: t.id, newStart: t.startTime, newEnd: newActiveEnd };
+      return { id: t.id, newStart: t.startTime!, newEnd: newActiveEnd };
     }
     if (i === activeIndex + 1) {
-      return { id: t.id, newStart: t.startTime + extraMs, newEnd: t.endTime };
+      return { id: t.id, newStart: t.startTime! + extraMs, newEnd: t.endTime! };
     }
-    return { id: t.id, newStart: t.startTime, newEnd: t.endTime };
+    return { id: t.id, newStart: t.startTime!, newEnd: t.endTime! };
   });
 
-  const newDayEndTime = tasks[tasks.length - 1].endTime;
+  const newDayEndTime = scheduledTasks[scheduledTasks.length - 1].endTime!;
 
   return {
     mode: "eatNext",

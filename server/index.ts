@@ -1,13 +1,64 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import authRoutes from "./routes/auth.js";
 import routineRoutes from "./routes/routine.js";
 import aiRoutes from "./routes/ai.js";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: "1mb" }));
+
+// CORS: whitelist from env, fallback to dev origins
+const allowedOrigins = (() => {
+  const raw = process.env.CORS_ORIGINS;
+  if (!raw) return ["http://localhost:5173", "http://localhost:4173"];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+})();
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS: origin not allowed"));
+    },
+    credentials: false,
+  }),
+);
+
+// General API rate limit
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Çok fazla istek atıldı, lütfen biraz bekleyin." },
+});
+app.use("/api", apiLimiter);
+
+// Stricter limit for auth & AI (brute force / key burning protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Çok fazla giriş denemesi. Lütfen sonra tekrar deneyin." },
+});
+app.use("/api/auth", authLimiter);
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "AI kota limitine ulaşıldı. Lütfen sonra tekrar deneyin." },
+});
+app.use("/api/generate-routine", aiLimiter);
 
 // MongoDB connection
 const MONGODB_URI =
@@ -34,7 +85,31 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// 404 handler
+app.use((_req, res) => {
+  res.status(404).json({ error: "Endpoint bulunamadı" });
+});
+
+// Global error handler
+app.use(
+  (
+    err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    console.error("Unhandled error:", err);
+    const message =
+      err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu";
+    if (message.startsWith("CORS")) {
+      return res.status(403).json({ error: message });
+    }
+    res.status(500).json({ error: "Sunucu hatası" });
+  },
+);
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Adaptime API running on port ${PORT}`);
+  console.log(`Allowed CORS origins: ${allowedOrigins.join(", ")}`);
 });

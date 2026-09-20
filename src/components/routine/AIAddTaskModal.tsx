@@ -3,6 +3,8 @@ import { useAppDispatch } from "@/store/hooks";
 import { addTask } from "@/store/slices/routineSlice";
 import { closeAddModal } from "@/store/slices/uiSlice";
 import { getTodayString, timeToTimestamp } from "@/utils";
+import { aiApi } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +28,7 @@ const EXAMPLE_PROMPTS = [
 
 export default function AIAddTaskModal() {
   const dispatch = useAppDispatch();
+  const { token } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [generatedTasks, setGeneratedTasks] = useState<GeneratedTask[]>([]);
@@ -41,24 +44,19 @@ export default function AIAddTaskModal() {
     setSelectedTasks(new Set());
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-      const res = await fetch(`${API_URL}/api/generate-routine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (!res.ok) throw new Error("API hatası");
-
-      const data = await res.json();
+      const data = await aiApi.generateRoutine(prompt, token ?? undefined);
       if (data.tasks && Array.isArray(data.tasks)) {
         setGeneratedTasks(data.tasks);
         setSelectedTasks(new Set(data.tasks.map((_: unknown, i: number) => i)));
       } else {
         throw new Error("Geçersiz yanıt");
       }
-    } catch {
-      setError("Rutin oluşturulamadı. Lütfen tekrar deneyin.");
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message === "API hatası"
+          ? "Rutin oluşturulamadı. Lütfen tekrar deneyin."
+          : "Rutin oluşturulamadı. Sunucu çevrimdışı olabilir.",
+      );
     } finally {
       setIsLoading(false);
     }

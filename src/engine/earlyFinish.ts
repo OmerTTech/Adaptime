@@ -1,26 +1,28 @@
 import type { TaskBlock, EarlyFinishImpact, EarlyFinishMode } from "@/types";
+import { isScheduled } from "@/types";
 
 export function calculateEarlyFinishImpact(
   tasks: TaskBlock[],
   completedTaskId: string,
   mode: EarlyFinishMode,
 ): EarlyFinishImpact {
-  const completedIndex = tasks.findIndex((t) => t.id === completedTaskId);
+  const scheduledTasks = tasks.filter(isScheduled);
+  const completedIndex = scheduledTasks.findIndex((t) => t.id === completedTaskId);
   if (completedIndex === -1) {
     return {
       mode,
       savedMinutes: 0,
-      newDayEndTime: tasks[tasks.length - 1]?.endTime ?? Date.now(),
+      newDayEndTime: scheduledTasks[scheduledTasks.length - 1]?.endTime ?? Date.now(),
       description: "Görev bulunamadı",
     };
   }
 
-  const completed = tasks[completedIndex];
+  const completed = scheduledTasks[completedIndex];
   const savedMs = completed.endTime - Date.now();
   const savedMinutes = Math.max(0, Math.round(savedMs / 60000));
 
   if (mode === "pullForward") {
-    const newDayEndTime = tasks[tasks.length - 1].endTime - savedMs;
+    const newDayEndTime = scheduledTasks[scheduledTasks.length - 1].endTime - savedMs;
     return {
       mode: "pullForward",
       savedMinutes,
@@ -32,7 +34,7 @@ export function calculateEarlyFinishImpact(
   return {
     mode: "extendBreak",
     savedMinutes,
-    newDayEndTime: tasks[tasks.length - 1].endTime,
+    newDayEndTime: scheduledTasks[scheduledTasks.length - 1].endTime,
     description: `Kalan ${savedMinutes} dakika dinlenme sürenize eklendi.`,
   };
 }
@@ -43,9 +45,12 @@ export function applyEarlyFinishImpact(
 ): TaskBlock[] {
   if (impact.mode !== "pullForward") return tasks;
 
-  return tasks.map((t) => ({
-    ...t,
-    startTime: t.startTime - impact.savedMinutes * 60000,
-    endTime: t.endTime - impact.savedMinutes * 60000,
-  }));
+  return tasks.map((t) => {
+    if (!isScheduled(t)) return t;
+    return {
+      ...t,
+      startTime: t.startTime - impact.savedMinutes * 60000,
+      endTime: t.endTime - impact.savedMinutes * 60000,
+    };
+  });
 }

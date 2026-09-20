@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { updateTask } from "@/store/slices/routineSlice";
+import { updateTask, scheduleTask } from "@/store/slices/routineSlice";
 import { closeEditModal } from "@/store/slices/uiSlice";
 import { getTodayString, timeToTimestamp, timestampToTime } from "@/utils";
+import { isScheduled } from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Clock, Trash2 } from "lucide-react";
 
 const PRESET_COLORS = [
   "#FF6B6B",
@@ -32,10 +34,13 @@ export default function EditTaskModal() {
 
   const [title, setTitle] = useState(task?.title ?? "");
   const [startTime, setStartTime] = useState(
-    task ? timestampToTime(task.startTime) : "",
+    task && isScheduled(task) ? timestampToTime(task.startTime!) : "",
   );
   const [endTime, setEndTime] = useState(
-    task ? timestampToTime(task.endTime) : "",
+    task && isScheduled(task) ? timestampToTime(task.endTime!) : "",
+  );
+  const [estimatedMinutes, setEstimatedMinutes] = useState(
+    task?.estimatedMinutes ? String(task.estimatedMinutes) : "",
   );
   const [selectedColor, setSelectedColor] = useState(task?.color ?? "");
   const today = getTodayString();
@@ -44,37 +49,46 @@ export default function EditTaskModal() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !startTime || !endTime) return;
+    if (!title.trim()) return;
 
-    let start = timeToTimestamp(startTime, today);
-    let end = timeToTimestamp(endTime, today);
-
-    if (end <= start) {
-      end = timeToTimestamp(endTime, getTodayString(1));
+    if (startTime && endTime) {
+      let start = timeToTimestamp(startTime, today);
+      let end = timeToTimestamp(endTime, today);
+      if (end <= start) {
+        end = timeToTimestamp(endTime, getTodayString(1));
+      }
+      if (end > start) {
+        dispatch(
+          scheduleTask({ id: task.id, startTime: start, endTime: end }),
+        );
+      }
+    } else if (!startTime && !endTime) {
+      const est = estimatedMinutes
+        ? Math.max(1, Number(estimatedMinutes))
+        : undefined;
+      dispatch(
+        updateTask({
+          id: task.id,
+          updates: { title, color: selectedColor, estimatedMinutes: est },
+        }),
+      );
     }
 
-    if (end <= start) return;
-
-    dispatch(
-      updateTask({
-        id: task.id,
-        updates: {
-          title,
-          startTime: start,
-          endTime: end,
-          color: selectedColor,
-        },
-      }),
-    );
-
     dispatch(closeEditModal());
+  };
+
+  const handleClearTime = () => {
+    setStartTime("");
+    setEndTime("");
   };
 
   return (
     <Dialog open onOpenChange={() => dispatch(closeEditModal())}>
       <DialogContent className="bg-surface border-border sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-text">Görevi Düzenle</DialogTitle>
+          <DialogTitle className="text-text">
+            {isScheduled(task) ? "Görevi Düzenle" : "Yapılacak — Görevi Düzenle"}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -101,7 +115,6 @@ export default function EditTaskModal() {
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 className="bg-background border-border text-text"
-                required
               />
             </div>
             <div>
@@ -113,7 +126,45 @@ export default function EditTaskModal() {
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 className="bg-background border-border text-text"
-                required
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            {startTime && endTime ? (
+              <button
+                type="button"
+                onClick={handleClearTime}
+                className="text-xs text-danger flex items-center gap-1 hover:underline"
+              >
+                <Trash2 size={12} />
+                Planı Kaldır
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = new Date();
+                  const start = new Date();
+                  start.setSeconds(0, 0);
+                  start.setMinutes(next.getMinutes() + 15);
+                  setStartTime(timestampToTime(start.getTime()));
+                  setEndTime(timestampToTime(start.getTime() + 3600000));
+                }}
+                className="text-xs text-primary flex items-center gap-1 hover:underline"
+              >
+                <Clock size={12} />
+                Şimdi Zaman Ver
+              </button>
+            )}
+            <div className="w-32">
+              <Input
+                type="number"
+                min={1}
+                value={estimatedMinutes}
+                onChange={(e) => setEstimatedMinutes(e.target.value)}
+                placeholder="Tahmini dk"
+                className="bg-background border-border text-text text-xs"
               />
             </div>
           </div>

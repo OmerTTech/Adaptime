@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -68,7 +69,7 @@ async function callGemini(key: string, prompt: string) {
   return { tasks: JSON.parse(jsonMatch[0]) };
 }
 
-router.post("/", async (req, res) => {
+router.post("/", authMiddleware, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) {

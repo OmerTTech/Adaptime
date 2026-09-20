@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   closeEarlyFinishModal,
   setPendingEarlyFinishImpact,
 } from "@/store/slices/uiSlice";
 import { calculateEarlyFinishImpact } from "@/engine/earlyFinish";
+import { isScheduled } from "@/types";
 import { TimerOff, Coffee, ArrowRight, X } from "lucide-react";
 
 export default function EarlyFinishModal() {
@@ -19,18 +21,26 @@ export default function EarlyFinishModal() {
     (state) => state.routine.currentRoutine?.dayEndTime ?? 0,
   );
 
+  const task = tasks.find((t) => t.id === earlyFinishTaskId);
+
+  useEffect(() => {
+    if (
+      isOpen &&
+      earlyFinishTaskId &&
+      task &&
+      isScheduled(task) &&
+      task.endTime - Date.now() <= 0
+    ) {
+      dispatch(closeEarlyFinishModal());
+    }
+  }, [isOpen, earlyFinishTaskId, task, dispatch]);
+
   if (!isOpen || !earlyFinishTaskId) return null;
 
-  const task = tasks.find((t) => t.id === earlyFinishTaskId);
-  if (!task) return null;
+  if (!task || !isScheduled(task)) return null;
 
   const remainingMs = Math.max(0, task.endTime - Date.now());
   const savedMinutes = Math.max(0, Math.round(remainingMs / 60000));
-
-  if (savedMinutes <= 0) {
-    dispatch(closeEarlyFinishModal());
-    return null;
-  }
 
   const handleSelect = (mode: "extendBreak" | "pullForward") => {
     const impact = calculateEarlyFinishImpact(tasks, earlyFinishTaskId, mode);

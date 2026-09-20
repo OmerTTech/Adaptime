@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { formatTime, formatDuration } from "@/utils";
+import { isScheduled } from "@/types";
 import {
   Play,
   Pause,
@@ -19,6 +20,7 @@ import {
   removeTask,
 } from "@/store/slices/routineSlice";
 import { openPauseModal, openEditModal } from "@/store/slices/uiSlice";
+import UnscheduledTasks from "./UnscheduledTasks";
 
 export default function TimelineView() {
   const tasks = useAppSelector(
@@ -26,6 +28,9 @@ export default function TimelineView() {
   );
   const dispatch = useAppDispatch();
   const [, setTick] = useState(0);
+
+  const scheduledTasks = tasks.filter(isScheduled);
+  const hasUnscheduled = tasks.some((t) => !isScheduled(t));
 
   useEffect(() => {
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
@@ -64,26 +69,33 @@ export default function TimelineView() {
   );
 
   const getEffectiveDuration = (task: (typeof tasks)[0]) => {
-    const base = task.endTime - task.startTime;
-    return base - task.pausedDuration;
-  };
-
-  const getActiveStart = (task: (typeof tasks)[0]) => {
-    return task.startedAt ?? task.startTime;
+    const base = (task.endTime ?? 0) - (task.startTime ?? 0);
+    return Math.max(0, base - task.pausedDuration);
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-2">
-      {tasks.map((task, i) => {
+      {hasUnscheduled && <UnscheduledTasks />}
+
+      {scheduledTasks.length > 0 && (
+        <div className="pt-2 pb-1 flex items-center gap-2">
+          <Clock size={12} className="text-primary" />
+          <p className="text-xs text-text-muted font-medium">
+            Planlanan Görevler
+          </p>
+        </div>
+      )}
+
+      {scheduledTasks.map((task, i) => {
         const duration = getEffectiveDuration(task);
-        const activeStart = getActiveStart(task);
+        const activeStart = task.startedAt ?? task.startTime!;
         const pausedExtra =
           task.status === "paused" && task.pausedAt
             ? Date.now() - task.pausedAt
             : 0;
-        const total = task.endTime - task.startTime;
+        const total = (task.endTime ?? 0) - (task.startTime ?? 0);
         const preGap = task.startedAt
-          ? Math.max(0, task.startedAt - task.startTime)
+          ? Math.max(0, task.startedAt - task.startTime!)
           : 0;
         const preGapPct = total > 0 ? (preGap / total) * 100 : 0;
         const elapsedActive =
@@ -131,7 +143,7 @@ export default function TimelineView() {
                   />
                 )}
               </div>
-              {i < tasks.length - 1 && (
+              {i < scheduledTasks.length - 1 && (
                 <div className="absolute top-full left-1/2 -translate-x-1/2 w-px h-2 bg-border" />
               )}
             </button>
@@ -153,7 +165,7 @@ export default function TimelineView() {
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs text-text-muted">
-                  {formatTime(task.startTime)} - {formatTime(task.endTime)}
+                  {formatTime(task.startTime!)} - {formatTime(task.endTime!)}
                 </span>
                 <span className="text-xs text-text-muted">
                   {formatDuration(duration)}
@@ -245,7 +257,9 @@ export default function TimelineView() {
                   <CheckCircle size={16} />
                 </button>
               )}
-              {(task.status === "pending" || task.status === "skipped" || task.status === "completed") && (
+              {(task.status === "pending" ||
+                task.status === "skipped" ||
+                task.status === "completed") && (
                 <>
                   <button
                     onClick={() => dispatch(openEditModal(task.id))}

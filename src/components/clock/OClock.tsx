@@ -3,6 +3,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { removeTask } from "@/store/slices/routineSlice";
 import { openEditModal } from "@/store/slices/uiSlice";
 import { formatTime, formatDuration } from "@/utils";
+import { isScheduled } from "@/types";
 import { Pencil, Trash2 } from "lucide-react";
 
 const SIZE = 420;
@@ -115,7 +116,9 @@ const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 export default function OClock() {
   const dispatch = useAppDispatch();
-  const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
+  const allTasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
+  const tasks = allTasks.filter(isScheduled);
+  const unscheduledCount = allTasks.length - tasks.length;
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -391,6 +394,13 @@ export default function OClock() {
       {tasks.length === 0 && (
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           Henüz görev eklenmedi. + butonu ile başlayın.
+        </p>
+      )}
+
+      {unscheduledCount > 0 && (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {unscheduledCount} görev saatsiz (Yapılacaklar). Zamanlayıp saate
+          ekleyebilirsin.
         </p>
       )}
     </div>

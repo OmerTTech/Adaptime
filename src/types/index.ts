@@ -12,16 +12,33 @@ export type EarlyFinishMode = "extendBreak" | "pullForward";
 export interface TaskBlock {
   id: string;
   title: string;
-  startTime: number;
-  endTime: number;
-  originalDuration: number;
+  startTime?: number;
+  endTime?: number;
+  originalDuration?: number;
   color: string;
   status: TaskStatus;
   startedAt?: number;
   pausedAt?: number;
   pausedDuration: number;
   flowExtensions: number;
+  estimatedMinutes?: number;
 }
+
+export type ScheduledTask = TaskBlock & {
+  startTime: number;
+  endTime: number;
+  originalDuration: number;
+};
+
+export function isScheduled(task: TaskBlock): task is ScheduledTask {
+  return (
+    typeof task.startTime === "number" &&
+    typeof task.endTime === "number" &&
+    task.endTime > task.startTime
+  );
+}
+
+export type DayRoutineDayStatus = "active" | "completed";
 
 export interface DayRoutine {
   id: string;

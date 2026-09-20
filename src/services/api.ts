@@ -36,12 +36,7 @@ async function apiFetch<T>(
 
 // Auth
 export const authApi = {
-  googleLogin: (data: {
-    googleId: string;
-    email: string;
-    name: string;
-    avatar?: string;
-  }) =>
+  googleLogin: (data: { idToken: string }) =>
     apiFetch<{
       token: string;
       user: { id: string; email: string; name: string; avatar?: string };
@@ -61,25 +56,32 @@ export const authApi = {
 };
 
 // Routines
+export interface RoutineTaskDTO {
+  _id: string;
+  title: string;
+  startTime?: number;
+  endTime?: number;
+  originalDuration?: number;
+  estimatedMinutes?: number;
+  color: string;
+  status: string;
+  startedAt?: number;
+  pausedAt?: number;
+  pausedDuration: number;
+  flowExtensions: number;
+}
+
+export interface RoutineDTO {
+  _id: string;
+  date: string;
+  tasks: RoutineTaskDTO[];
+  dayEndTime: number;
+  streak: number;
+}
+
 export const routineApi = {
   get: (date: string, token: string) =>
-    apiFetch<{
-      _id: string;
-      date: string;
-      tasks: Array<{
-        _id: string;
-        title: string;
-        startTime: number;
-        endTime: number;
-        originalDuration: number;
-        color: string;
-        status: string;
-        pausedDuration: number;
-        flowExtensions: number;
-      }>;
-      dayEndTime: number;
-      streak: number;
-    }>(`/api/routines/${date}`, { token }),
+    apiFetch<RoutineDTO | null>(`/api/routines/${date}`, { token }),
 
   save: (
     data: {
@@ -93,16 +95,28 @@ export const routineApi = {
     apiFetch<unknown>("/api/routines", { method: "POST", body: data, token }),
 
   getStreak: (token: string) =>
-    apiFetch<{ totalStreak: number; activeDays: number }>(
-      "/api/routines/streak",
-      { token },
-    ),
+    apiFetch<{
+      currentStreak: number;
+      completedDates: string[];
+      todayIsCompleted: boolean;
+    }>("/api/routines/streak", { token }),
+
+  getHistory: (token: string, limit = 30) =>
+    apiFetch<RoutineDTO[]>(`/api/routines/history?limit=${limit}`, {
+      token,
+    }),
+
+  deleteAll: (token: string) =>
+    apiFetch<{ success: boolean }>("/api/routines", {
+      method: "DELETE",
+      token,
+    }),
 };
 
 // AI
 export const aiApi = {
-  generateRoutine: (prompt: string) =>
+  generateRoutine: (prompt: string, token?: string) =>
     apiFetch<{
       tasks: Array<{ title: string; startHHMM: string; endHHMM: string }>;
-    }>("/api/generate-routine", { method: "POST", body: { prompt } }),
+    }>("/api/generate-routine", { method: "POST", body: { prompt }, token }),
 };

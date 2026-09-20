@@ -11,6 +11,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { completeTask, pauseTask, skipTask, adjustStartedAt } from "@/store/slices/routineSlice";
+import { isScheduled, type ScheduledTask } from "@/types";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,7 +39,9 @@ export default function FocusTimer() {
 
   const activeTask = tasks.find((t) => t.status === "active");
   const pausedTask = tasks.find((t) => t.status === "paused");
-  const currentTask = activeTask || pausedTask;
+  const rawCurrent = activeTask || pausedTask;
+  const currentTask: ScheduledTask | undefined =
+    rawCurrent && isScheduled(rawCurrent) ? rawCurrent : undefined;
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);

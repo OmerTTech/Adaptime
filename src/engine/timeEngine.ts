@@ -1,4 +1,5 @@
-import type { TaskBlock, PauseImpact, PauseMode } from "@/types";
+import type { TaskBlock, PauseImpact, PauseMode, ScheduledTask } from "@/types";
+import { isScheduled } from "@/types";
 
 export function calculatePauseImpact(
   tasks: TaskBlock[],
@@ -6,11 +7,12 @@ export function calculatePauseImpact(
   pauseDuration: number,
   mode: PauseMode,
 ): PauseImpact {
-  const activeIndex = tasks.findIndex((t) => t.id === activeTaskId);
+  const scheduledTasks = tasks.filter(isScheduled);
+  const activeIndex = scheduledTasks.findIndex((t) => t.id === activeTaskId);
   if (activeIndex === -1) {
     return {
       mode,
-      newDayEndTime: tasks[tasks.length - 1]?.endTime ?? Date.now(),
+      newDayEndTime: scheduledTasks[scheduledTasks.length - 1]?.endTime ?? Date.now(),
       affectedTasks: [],
       description: "Aktif görev bulunamadı",
     };
@@ -18,16 +20,16 @@ export function calculatePauseImpact(
 
   switch (mode) {
     case "shift":
-      return calculateShift(tasks, activeIndex, pauseDuration);
+      return calculateShift(scheduledTasks, activeIndex, pauseDuration);
     case "cut":
-      return calculateCut(tasks, activeIndex, pauseDuration);
+      return calculateCut(scheduledTasks, activeIndex, pauseDuration);
     case "balance":
-      return calculateBalance(tasks, activeIndex, pauseDuration);
+      return calculateBalance(scheduledTasks, activeIndex, pauseDuration);
   }
 }
 
 function calculateShift(
-  tasks: TaskBlock[],
+  tasks: ScheduledTask[],
   _activeIndex: number,
   pauseDuration: number,
 ): PauseImpact {
@@ -48,7 +50,7 @@ function calculateShift(
 }
 
 function calculateCut(
-  tasks: TaskBlock[],
+  tasks: ScheduledTask[],
   _activeIndex: number,
   pauseDuration: number,
 ): PauseImpact {
@@ -69,7 +71,7 @@ function calculateCut(
 }
 
 function calculateBalance(
-  tasks: TaskBlock[],
+  tasks: ScheduledTask[],
   activeIndex: number,
   pauseDuration: number,
 ): PauseImpact {

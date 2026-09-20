@@ -12,7 +12,10 @@ import type {
 type PreviewSource = "pause" | "flow" | "earlyFinish";
 type AddModalMode = "manual" | "ai";
 
+export type PageName = "today" | "stats" | "settings";
+
 interface UIState {
+  activePage: PageName;
   viewMode: ViewMode;
   isAddModalOpen: boolean;
   addModalMode: AddModalMode;
@@ -44,6 +47,7 @@ interface UIState {
 const uiSlice = createSlice({
   name: "ui",
   initialState: {
+    activePage: "today",
     viewMode: "oclock",
     isAddModalOpen: false,
     addModalMode: "manual",
@@ -68,6 +72,9 @@ const uiSlice = createSlice({
     pendingEarlyFinishMode: null,
   } as UIState,
   reducers: {
+    setActivePage: (state, action: PayloadAction<PageName>) => {
+      state.activePage = action.payload;
+    },
     setViewMode: (state, action: PayloadAction<ViewMode>) => {
       state.viewMode = action.payload;
     },
@@ -203,6 +210,7 @@ const uiSlice = createSlice({
 });
 
 export const {
+  setActivePage,
   setViewMode,
   toggleViewMode,
   openAddModal,

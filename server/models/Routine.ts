@@ -2,11 +2,14 @@ import mongoose, { Schema, type Document } from "mongoose";
 
 export interface ITaskBlock {
   title: string;
-  startTime: number;
-  endTime: number;
-  originalDuration: number;
+  startTime?: number;
+  endTime?: number;
+  originalDuration?: number;
+  estimatedMinutes?: number;
   color: string;
   status: "pending" | "active" | "paused" | "completed" | "skipped";
+  startedAt?: number;
+  pausedAt?: number;
   pausedDuration: number;
   flowExtensions: number;
 }
@@ -24,15 +27,18 @@ export interface IRoutine extends Document {
 const taskBlockSchema = new Schema<ITaskBlock>(
   {
     title: { type: String, required: true },
-    startTime: { type: Number, required: true },
-    endTime: { type: Number, required: true },
-    originalDuration: { type: Number, required: true },
+    startTime: { type: Number },
+    endTime: { type: Number },
+    originalDuration: { type: Number },
+    estimatedMinutes: { type: Number },
     color: { type: String, default: "#6366f1" },
     status: {
       type: String,
       enum: ["pending", "active", "paused", "completed", "skipped"],
       default: "pending",
     },
+    startedAt: { type: Number },
+    pausedAt: { type: Number },
     pausedDuration: { type: Number, default: 0 },
     flowExtensions: { type: Number, default: 0 },
   },

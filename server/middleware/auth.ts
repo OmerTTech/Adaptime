@@ -2,7 +2,12 @@ import { type Request, type Response, type NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET =
-  process.env.JWT_SECRET || "adaptime-dev-secret-change-in-production";
+  process.env.JWT_SECRET ||
+  (process.env.NODE_ENV === "production"
+    ? (() => {
+        throw new Error("JWT_SECRET must be set in production");
+      })()
+    : "adaptime-dev-secret-change-in-production");
 
 export interface AuthRequest extends Request {
   userId?: string;

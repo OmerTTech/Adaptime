@@ -44,7 +44,8 @@ npm install
 MONGODB_URI=mongodb://localhost:27017/adaptime
 JWT_SECRET=uzun-rastgele-bir-secret
 # Firebase Auth (Google login) — Firebase console proje ID'si
-FIREBASE_PROJECT_ID=adaptime-c1cbc
+FIREBASE_PROJECT_ID=<firebase-proje-id>
+# CORS_ORIGINS=http://localhost:5173
 CORS_ORIGINS=http://localhost:5173
 # Gemini AI rutin önerisi (opsiyonel)
 GEMINI_API_KEYS=[]

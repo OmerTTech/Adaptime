@@ -78,7 +78,7 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     if (!auth) return;
     setError(null);
-    setIsGoogleLoading(trueapsed_timestamp);
+    setIsGoogleLoading(true);
     try {
       await signInWithRedirect(auth, googleProvider);
     } catch (err) {

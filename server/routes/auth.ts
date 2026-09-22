@@ -94,14 +94,19 @@ router.post("/google", async (req, res) => {
       user = await User.findOne({ googleId: uid });
     }
     if (!user) {
+      user = await User.findOne({ firebaseUid: uid });
+    }
+    if (!user) {
       user = await User.create({
         googleId: uid,
+        firebaseUid: uid,
         email: email || `${uid}@firebase.local`,
         name: name || email?.split("@")[0] || "Kullanıcı",
         avatar: picture,
       });
     } else {
       user.googleId = uid;
+      user.firebaseUid = uid;
       if (name) user.name = name;
       if (picture) user.avatar = picture;
       await user.save();
@@ -123,17 +128,43 @@ router.post("/google", async (req, res) => {
   }
 });
 
-// Demo Login (no Google required)
-router.post("/demo", async (req, res) => {
+// Email/Password Login (verifies the Firebase ID token issued by Firebase Auth)
+router.post("/email", async (req, res) => {
   try {
-    const { email, name } = req.body;
-    if (!email || !name) {
-      return res.status(400).json({ error: "Eksik bilgi" });
+    const { idToken, name } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ error: "Firebase ID token eksik" });
     }
 
-    let user = await User.findOne({ email });
+    let profile;
+    try {
+      profile = await verifyFirebaseIdToken(idToken);
+    } catch (e) {
+      console.error("Firebase token verification failed:", e);
+      return res.status(401).json({
+        error:
+          e instanceof Error && e.message
+            ? e.message
+            : "Firebase token doğrulanamadı",
+      });
+    }
+
+    const { uid, email } = profile;
+    let user = await User.findOne({ email: email || "" });
     if (!user) {
-      user = await User.create({ email, name, avatar: undefined });
+      user = await User.findOne({ firebaseUid: uid });
+    }
+    if (!user) {
+      user = await User.create({
+        firebaseUid: uid,
+        email: email || `${uid}@firebase.local`,
+        name: name || email?.split("@")[0] || "Kullanıcı",
+      });
+    } else {
+      user.firebaseUid = uid;
+      if (name) user.name = name;
+      await user.save();
     }
 
     const token = generateToken(user._id.toString());
@@ -147,7 +178,7 @@ router.post("/demo", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Demo auth error:", error);
+    console.error("Email auth error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
   }
 });

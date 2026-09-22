@@ -42,11 +42,11 @@ export const authApi = {
       user: { id: string; email: string; name: string; avatar?: string };
     }>("/api/auth/google", { method: "POST", body: data }),
 
-  demoLogin: (data: { email: string; name: string }) =>
+  emailLogin: (data: { idToken: string; name?: string }) =>
     apiFetch<{
       token: string;
       user: { id: string; email: string; name: string };
-    }>("/api/auth/demo", { method: "POST", body: data }),
+    }>("/api/auth/email", { method: "POST", body: data }),
 
   getMe: (token: string) =>
     apiFetch<{ id: string; email: string; name: string; avatar?: string }>(

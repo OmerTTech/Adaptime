@@ -18,7 +18,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  loginWithDemo: (email: string, name: string) => Promise<void>;
+  loginWithEmail: (idToken: string, name?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => void;
 }
@@ -48,12 +48,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const loginWithDemo = useCallback(async (email: string, name: string) => {
-    const result = await authApi.demoLogin({ email, name });
-    localStorage.setItem("adaptime-token", result.token);
-    setToken(result.token);
-    setUser(result.user);
-  }, []);
+  const loginWithEmail = useCallback(
+    async (idToken: string, name?: string) => {
+      const result = await authApi.emailLogin({ idToken, name });
+      localStorage.setItem("adaptime-token", result.token);
+      setToken(result.token);
+      setUser(result.user);
+    },
+    [],
+  );
 
   const loginWithGoogle = useCallback(async (idToken: string) => {
     const result = await authApi.googleLogin({ idToken });
@@ -70,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isLoading, loginWithDemo, loginWithGoogle, logout }}
+      value={{ user, token, isLoading, loginWithEmail, loginWithGoogle, logout }}
     >
       {children}
     </AuthContext.Provider>

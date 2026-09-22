@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { signInWithPopup } from "firebase/auth";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithPopup,
+} from "firebase/auth";
 import { auth, googleProvider, FIREBASE_CONFIGURED } from "@/services/firebase";
 import { Sparkles } from "lucide-react";
 
@@ -27,24 +32,75 @@ function GoogleIcon() {
   );
 }
 
+function firebaseErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return "E-posta veya şifre hatalı.";
+    case "auth/invalid-email":
+      return "Geçersiz e-posta adresi.";
+    case "auth/weak-password":
+      return "Şifre en az 6 karakter olmalı.";
+    case "auth/email-already-in-use":
+      return "Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.";
+    case "auth/unauthorized-domain":
+      return "Bu domain Firebase'de yetkili değil. Firebase Console → Authentication → Settings → Authorized domains'e sitenizi ekleyin.";
+    case "auth/network-request-failed":
+      return "Ağ hatası. İnternet bağlantınızı kontrol edin.";
+    case "auth/missing-password":
+      return "Şifre gerekli.";
+    default:
+      return code
+        ? `Giriş başarısız (${code}). Lütfen tekrar deneyin.`
+        : "Giriş başarısız. Lütfen tekrar deneyin.";
+  }
+}
+
 export default function LoginPage() {
-  const { loginWithDemo, loginWithGoogle } = useAuth();
-  const [email, setEmail] = useState("");
+  const { loginWithEmail, loginWithGoogle } = useAuth();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (mode === "login") setError(null);
+  }, [mode]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !name) return;
+    if (!auth) return;
     setIsLoading(true);
     setError(null);
 
     try {
-      await loginWithDemo(email, name);
-    } catch {
-      setError("Giriş başarısız. Lütfen tekrar deneyin.");
+      let credential;
+      if (mode === "register") {
+        if (!name) {
+          setError("Lütfen adınızı girin.");
+          return;
+        }
+        credential = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password,
+        );
+        await updateProfile(credential.user, { displayName: name });
+      } else {
+        credential = await signInWithEmailAndPassword(auth, email, password);
+      }
+      const idToken = await credential.user.getIdToken();
+      if (!credential.user.displayName) {
+        await updateProfile(credential.user, { displayName: name || undefined });
+      }
+      await loginWithEmail(idToken, mode === "register" ? name : undefined);
+    } catch (err) {
+      console.error("[Email] giriş hatası:", err);
+      setError(firebaseErrorMessage((err as { code?: string })?.code));
     } finally {
       setIsLoading(false);
     }
@@ -115,21 +171,42 @@ export default function LoginPage() {
           </div>
         )}
 
+        <div className="flex rounded-xl bg-surface border border-border p-1 mb-4">
+          {(["login", "register"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                mode === m
+                  ? "bg-primary text-white"
+                  : "text-text-muted hover:text-text"
+              }`}
+            >
+              {m === "login" ? "Giriş Yap" : "Kayıt Ol"}
+            </button>
+          ))}
+        </div>
+
         <form
           onSubmit={handleSubmit}
           className="bg-surface border border-border rounded-2xl p-6 space-y-4"
         >
-          <div>
-            <label className="text-xs text-text-muted mb-1 block">Adınız</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ömer"
-              className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
-              required
-            />
-          </div>
+          {mode === "register" && (
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Adınız
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ömer"
+                className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+                required
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-text-muted mb-1 block">
@@ -145,19 +222,36 @@ export default function LoginPage() {
             />
           </div>
 
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Şifre</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+              required
+              minLength={6}
+            />
+          </div>
+
           {error && <p className="text-sm text-danger">{error}</p>}
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !FIREBASE_CONFIGURED}
             className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-medium transition-all disabled:opacity-50"
           >
-            {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
+            {isLoading
+              ? "Giriş yapılıyor..."
+              : mode === "login"
+                ? "Giriş Yap"
+                : "Hesap Oluştur"}
           </button>
 
           {!FIREBASE_CONFIGURED && (
             <p className="text-xs text-text-muted text-center">
-              Firebase yapılandırması eksik olduğu için Google girişi kapalı.
+              Firebase yapılandırması eksik olduğu için giriş kapalı.
             </p>
           )}
         </form>

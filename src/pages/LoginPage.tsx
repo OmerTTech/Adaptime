@@ -63,6 +63,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +85,10 @@ export default function LoginPage() {
           setError("Lütfen adınızı girin.");
           return;
         }
+        if (password !== confirmPassword) {
+          setError("Şifreler eşleşmiyor.");
+          return;
+        }
         credential = await createUserWithEmailAndPassword(
           auth,
           email,
@@ -100,7 +105,13 @@ export default function LoginPage() {
       await loginWithEmail(idToken, mode === "register" ? name : undefined);
     } catch (err) {
       console.error("[Email] giriş hatası:", err);
-      setError(firebaseErrorMessage((err as { code?: string })?.code));
+      if (err instanceof TypeError) {
+        setError(
+          "Sunucuya ulaşılamadı. Backend ayakta mı ve CORS allowlist'inde bu site var mı kontrol edin."
+        );
+      } else {
+        setError(firebaseErrorMessage((err as { code?: string })?.code));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -234,6 +245,23 @@ export default function LoginPage() {
               minLength={6}
             />
           </div>
+
+          {mode === "register" && (
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Şifre (Tekrar)
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-3 rounded-xl bg-background border border-border text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+                required
+                minLength={6}
+              />
+            </div>
+          )}
 
           {error && <p className="text-sm text-danger">{error}</p>}
 

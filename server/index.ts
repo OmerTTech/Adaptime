@@ -12,10 +12,16 @@ const app = express();
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 
-// CORS: whitelist from env, fallback to dev origins
+// CORS: whitelist from env, fallback to dev origins + default Netlify domain
 const allowedOrigins = (() => {
   const raw = process.env.CORS_ORIGINS;
-  if (!raw) return ["http://localhost:5173", "http://localhost:4173"];
+  if (!raw) {
+    return [
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "https://adaptime.netlify.app",
+    ];
+  }
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 })();
 
@@ -25,11 +31,23 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error("CORS: origin not allowed"));
+      callback(new Error(`CORS: origin not allowed (${origin})`));
     },
     credentials: false,
   }),
 );
+
+// Helpful log when a request is rejected because its origin is unknown
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !allowedOrigins.includes(origin)) {
+    console.warn(
+      `[CORS] Rejected request from '${origin}'. Allowed origins: ${allowedOrigins.join(", ")}. ` +
+        `Set CORS_ORIGINS env on the server to customize.`,
+    );
+  }
+  next();
+});
 
 // General API rate limit
 const apiLimiter = rateLimit({

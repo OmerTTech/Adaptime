@@ -7,6 +7,9 @@ import mongoose from "mongoose";
 import authRoutes from "./routes/auth.js";
 import routineRoutes from "./routes/routine.js";
 import aiRoutes from "./routes/ai.js";
+import accountabilityRoutes from "./routes/accountability.js";
+import diaryRoutes from "./routes/diary.js";
+import { startScheduler } from "./services/accountability.js";
 
 const app = express();
 app.use(helmet());
@@ -78,6 +81,25 @@ const aiLimiter = rateLimit({
 });
 app.use("/api/generate-routine", aiLimiter);
 
+// Client polls state every minute; 240/15min is comfortable but not unlimited.
+const accountabilityLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 240,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Çok fazla mentor isteği. Lütfen biraz bekleyin." },
+});
+app.use("/api/accountability", accountabilityLimiter);
+
+const diaryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Çok fazla günlük isteği. Lütfen biraz bekleyin." },
+});
+app.use("/api/diary", diaryLimiter);
+
 // MongoDB connection
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/adaptime";
@@ -94,6 +116,8 @@ mongoose
 app.use("/api/auth", authRoutes);
 app.use("/api/routines", routineRoutes);
 app.use("/api/generate-routine", aiRoutes);
+app.use("/api/accountability", accountabilityRoutes);
+app.use("/api/diary", diaryRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -131,3 +155,6 @@ app.listen(PORT, () => {
   console.log(`Adaptime API running on port ${PORT}`);
   console.log(`Allowed CORS origins: ${allowedOrigins.join(", ")}`);
 });
+
+// Saatlik hesap verebilirlik kontrolleri (sunucu tarafı, idempotent).
+startScheduler();

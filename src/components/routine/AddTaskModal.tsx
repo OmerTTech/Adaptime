@@ -4,6 +4,12 @@ import { addTask } from "@/store/slices/routineSlice";
 import { closeAddModal } from "@/store/slices/uiSlice";
 import { getTodayString, timeToTimestamp, getRandomColor } from "@/utils";
 import {
+  CATEGORY_LABEL,
+  PRIORITY_LABEL,
+  type TaskCategory,
+  type TaskPriority,
+} from "@/types";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -33,12 +39,26 @@ export default function AddTaskModal() {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [category, setCategory] = useState<TaskCategory>("work");
+  const [deadline, setDeadline] = useState("");
+  const [description, setDescription] = useState("");
   const [selectedColor, setSelectedColor] = useState(getRandomColor());
   const today = getTodayString();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
+    const deadlineTs = deadline ? new Date(deadline).getTime() : undefined;
+    const common = {
+      title,
+      color: selectedColor,
+      priority,
+      category,
+      ...(deadlineTs && Number.isFinite(deadlineTs) ? { deadline: deadlineTs } : {}),
+      ...(description.trim() ? { description: description.trim() } : {}),
+    };
 
     if (mode === "scheduled") {
       if (!startTime || !endTime) return;
@@ -48,24 +68,28 @@ export default function AddTaskModal() {
         end = timeToTimestamp(endTime, getTodayString(1));
       }
       if (end <= start) return;
-      dispatch(addTask({ title, startTime: start, endTime: end, color: selectedColor }));
+      dispatch(addTask({ ...common, startTime: start, endTime: end }));
     } else {
       const est = estimatedMinutes
         ? Math.max(1, Number(estimatedMinutes))
         : undefined;
-      dispatch(addTask({ title, estimatedMinutes: est, color: selectedColor }));
+      dispatch(addTask({ ...common, estimatedMinutes: est }));
     }
 
     setTitle("");
     setStartTime("");
     setEndTime("");
     setEstimatedMinutes("");
+    setDeadline("");
+    setDescription("");
+    setPriority("medium");
+    setCategory("work");
     dispatch(closeAddModal());
   };
 
   return (
     <Dialog open onOpenChange={() => dispatch(closeAddModal())}>
-      <DialogContent className="bg-surface border-border sm:max-w-md">
+      <DialogContent className="bg-surface border-border sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-text">Yeni Görev Ekle</DialogTitle>
         </DialogHeader>
@@ -161,6 +185,66 @@ export default function AddTaskModal() {
             </div>
           )}
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Öncelik
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+              >
+                {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Kategori
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as TaskCategory)}
+                className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+              >
+                {(Object.keys(CATEGORY_LABEL) as TaskCategory[]).map((c) => (
+                  <option key={c} value={c}>
+                    {CATEGORY_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Deadline <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <Input
+              type="datetime-local"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="bg-background border-border text-text"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Açıklama <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Görevin kapsamı, notlar..."
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
           <div>
             <label className="text-xs text-text-muted mb-2 block">Renk</label>
             <div className="flex gap-2">
@@ -177,6 +261,26 @@ export default function AddTaskModal() {
                   style={{ backgroundColor: color }}
                 />
               ))}
+              <label
+                className="relative w-8 h-8 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden hover:scale-105 transition-transform"
+                title="Özel renk seç"
+                style={{
+                  backgroundColor: PRESET_COLORS.includes(selectedColor)
+                    ? "transparent"
+                    : selectedColor,
+                }}
+              >
+                <input
+                  type="color"
+                  value={selectedColor}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  aria-label="Özel renk"
+                />
+                <span className="text-[11px] text-text-muted pointer-events-none">
+                  +
+                </span>
+              </label>
             </div>
           </div>
 

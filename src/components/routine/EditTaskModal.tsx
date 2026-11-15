@@ -1,9 +1,24 @@
 import { useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { updateTask, scheduleTask } from "@/store/slices/routineSlice";
+import {
+  updateTask,
+  scheduleTask,
+  moveTaskAsSubtask,
+} from "@/store/slices/routineSlice";
 import { closeEditModal } from "@/store/slices/uiSlice";
-import { getTodayString, timeToTimestamp, timestampToTime } from "@/utils";
-import { isScheduled } from "@/types";
+import {
+  getTodayString,
+  timeToTimestamp,
+  timestampToTime,
+  timestampToDateTimeLocal,
+} from "@/utils";
+import {
+  CATEGORY_LABEL,
+  PRIORITY_LABEL,
+  isScheduled,
+  type TaskCategory,
+  type TaskPriority,
+} from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Trash2 } from "lucide-react";
+import { Clock, CornerDownRight, Trash2 } from "lucide-react";
 
 const PRESET_COLORS = [
   "#FF6B6B",
@@ -31,6 +46,9 @@ export default function EditTaskModal() {
   const task = useAppSelector((s) =>
     s.routine.currentRoutine?.tasks.find((t) => t.id === taskId),
   );
+  const allTasks = useAppSelector(
+    (s) => s.routine.currentRoutine?.tasks ?? [],
+  );
 
   const [title, setTitle] = useState(task?.title ?? "");
   const [startTime, setStartTime] = useState(
@@ -43,6 +61,18 @@ export default function EditTaskModal() {
     task?.estimatedMinutes ? String(task.estimatedMinutes) : "",
   );
   const [selectedColor, setSelectedColor] = useState(task?.color ?? "");
+  const [priority, setPriority] = useState<TaskPriority>(
+    task?.priority ?? "medium",
+  );
+  const [category, setCategory] = useState<TaskCategory>(
+    task?.category ?? "work",
+  );
+  const [deadline, setDeadline] = useState(
+    task?.deadline ? timestampToDateTimeLocal(task.deadline) : "",
+  );
+  const [description, setDescription] = useState(task?.description ?? "");
+  const [parentId, setParentId] = useState("");
+  const [asSubtask, setAsSubtask] = useState(false);
   const today = getTodayString();
 
   if (!task) return null;
@@ -50,6 +80,17 @@ export default function EditTaskModal() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
+    const deadlineTs = deadline ? new Date(deadline).getTime() : undefined;
+    const meta = {
+      title,
+      color: selectedColor,
+      priority,
+      category,
+      description: description.trim() || undefined,
+      deadline:
+        deadlineTs && Number.isFinite(deadlineTs) ? deadlineTs : undefined,
+    };
 
     if (startTime && endTime) {
       let start = timeToTimestamp(startTime, today);
@@ -69,11 +110,12 @@ export default function EditTaskModal() {
       dispatch(
         updateTask({
           id: task.id,
-          updates: { title, color: selectedColor, estimatedMinutes: est },
+          updates: { ...meta, estimatedMinutes: est },
         }),
       );
     }
 
+    dispatch(updateTask({ id: task.id, updates: meta }));
     dispatch(closeEditModal());
   };
 
@@ -82,9 +124,15 @@ export default function EditTaskModal() {
     setEndTime("");
   };
 
+  const handleMoveAsSubtask = () => {
+    if (!parentId) return;
+    dispatch(moveTaskAsSubtask({ id: task.id, parentId }));
+    dispatch(closeEditModal());
+  };
+
   return (
     <Dialog open onOpenChange={() => dispatch(closeEditModal())}>
-      <DialogContent className="bg-surface border-border sm:max-w-md">
+      <DialogContent className="bg-surface border-border sm:max-w-md max-h-[85vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="text-text">
             {isScheduled(task) ? "Görevi Düzenle" : "Yapılacak — Görevi Düzenle"}
@@ -169,9 +217,112 @@ export default function EditTaskModal() {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Öncelik
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+              >
+                {(Object.keys(PRIORITY_LABEL) as TaskPriority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">
+                Kategori
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as TaskCategory)}
+                className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+              >
+                {(Object.keys(CATEGORY_LABEL) as TaskCategory[]).map((c) => (
+                  <option key={c} value={c}>
+                    {CATEGORY_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Deadline <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <Input
+              type="datetime-local"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="bg-background border-border text-text"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Açıklama <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Görevin kapsamı, notlar..."
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none w-fit">
+              <input
+                type="checkbox"
+                checked={asSubtask}
+                onChange={(e) => {
+                  setAsSubtask(e.target.checked);
+                  if (!e.target.checked) setParentId("");
+                }}
+                className="w-4 h-4 ml-1 rounded accent-primary"
+              />
+              <CornerDownRight size={12} />
+              Alt görev yap
+            </label>
+            {asSubtask && (
+              <div className="flex gap-1.5 min-w-0">
+                <select
+                  value={parentId}
+                  onChange={(e) => setParentId(e.target.value)}
+                  className="w-full min-w-0 flex-1 px-2 py-1.5 rounded-lg bg-background border border-border text-xs text-text truncate"
+                >
+                  <option value="">Ana görev seç…</option>
+                  {allTasks
+                    .filter((t) => t.id !== task.id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!parentId}
+                  onClick={handleMoveAsSubtask}
+                  className="shrink-0 bg-primary hover:bg-primary-hover text-white disabled:opacity-40 text-xs px-3 h-auto"
+                >
+                  Taşı
+                </Button>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="text-xs text-text-muted mb-2 block">Renk</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {PRESET_COLORS.map((color) => (
                 <button
                   key={color}
@@ -185,6 +336,26 @@ export default function EditTaskModal() {
                   style={{ backgroundColor: color }}
                 />
               ))}
+              <label
+                className="relative w-8 h-8 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden hover:scale-105 transition-transform"
+                title="Özel renk seç"
+                style={{
+                  backgroundColor: PRESET_COLORS.includes(selectedColor)
+                    ? "transparent"
+                    : selectedColor,
+                }}
+              >
+                <input
+                  type="color"
+                  value={selectedColor}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  aria-label="Özel renk"
+                />
+                <span className="text-[11px] text-text-muted pointer-events-none">
+                  +
+                </span>
+              </label>
             </div>
           </div>
 

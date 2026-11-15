@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { loadRoutineHistory } from "@/store/slices/routineSlice";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { isScheduled } from "@/types";
+import { ACTIVITY_LABEL, isScheduled } from "@/types";
 import { formatTime } from "@/utils";
 import {
   Flame,
@@ -11,6 +11,10 @@ import {
   CircleSlash,
   BarChart3,
   Loader2,
+  Activity,
+  Timer,
+  Coffee,
+  AlertTriangle,
 } from "lucide-react";
 
 interface MidValue {
@@ -29,6 +33,8 @@ export default function StatsPage() {
   const history = useAppSelector((s) => s.routine.history);
   const historyLoaded = useAppSelector((s) => s.routine.historyLoaded);
   const currentRoutine = useAppSelector((s) => s.routine.currentRoutine);
+  const summary = useAppSelector((s) => s.mentor.summary);
+  const activities = useAppSelector((s) => s.mentor.activities);
   const [loading, setLoading] = useState(false);
   const [fresh, setFresh] = useState<MidValue[]>([]);
   const [deep, setDeep] = useState<MidValue[]>([]);
@@ -184,6 +190,138 @@ export default function StatsPage() {
           </p>
         </div>
       </div>
+
+      {summary && (
+        <div className="p-4 rounded-xl bg-surface border border-border space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-medium text-text">
+              <Activity size={14} className="text-primary" />
+              Hesap verebilirlik (bugün)
+            </div>
+            <span className="text-[10px] text-text-muted tabular-nums">
+              {summary.checksAnswered}/{summary.checksSent} kontrol yanıtlandı
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              {
+                label: "Tamamlanan",
+                value: `${summary.completed}/${summary.planned}`,
+                hint: `%${summary.completionRate}`,
+              },
+              {
+                label: "Geciken",
+                value: String(summary.overdue),
+                hint: "süresi geçmiş",
+              },
+              {
+                label: "Ertelenen",
+                value: String(summary.delayed),
+                hint: "görev",
+              },
+              {
+                label: "Deadline",
+                value: `%${summary.deadlineSuccessRate}`,
+                hint: "zamanında",
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="p-2.5 rounded-lg bg-background border border-border"
+              >
+                <p className="text-[10px] uppercase tracking-wide text-text-muted">
+                  {item.label}
+                </p>
+                <p className="text-base font-bold text-text tabular-nums">
+                  {item.value}
+                </p>
+                <p className="text-[9px] text-text-muted">{item.hint}</p>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-text-muted mb-1">
+              <span>Planlanan süre: {summary.plannedMinutes} dk</span>
+              <span>
+                Bildirilen çalışma: {summary.workingMinutes + summary.otherMinutes} dk
+              </span>
+            </div>
+            <div className="h-2 bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    summary.plannedMinutes > 0
+                      ? Math.round(
+                          ((summary.workingMinutes + summary.otherMinutes) /
+                            summary.plannedMinutes) *
+                            100,
+                        )
+                      : 0,
+                  )}%`,
+                }}
+              />
+            </div>
+            <p className="text-[9px] text-text-muted mt-1">
+              Yalnızca senin bildirdiğin aktiviteler sayılır; tahmin edilen süre
+              istatistiğe eklenmez.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2 rounded-lg bg-background border border-border">
+              <Timer size={12} className="mx-auto text-primary" />
+              <p className="text-sm font-bold text-text tabular-nums mt-0.5">
+                {summary.focusMinutes} dk
+              </p>
+              <p className="text-[9px] text-text-muted">odak</p>
+            </div>
+            <div className="p-2 rounded-lg bg-background border border-border">
+              <AlertTriangle size={12} className="mx-auto text-warning" />
+              <p className="text-sm font-bold text-text tabular-nums mt-0.5">
+                {summary.otherMinutes} dk
+              </p>
+              <p className="text-[9px] text-text-muted">başka iş</p>
+            </div>
+            <div className="p-2 rounded-lg bg-background border border-border">
+              <Coffee size={12} className="mx-auto text-text-muted" />
+              <p className="text-sm font-bold text-text tabular-nums mt-0.5">
+                {summary.restMinutes} dk
+              </p>
+              <p className="text-[9px] text-text-muted">dinlenme</p>
+            </div>
+          </div>
+
+          {activities.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1">
+                Son bildirimler
+              </p>
+              <div className="space-y-1">
+                {activities.slice(0, 5).map((a) => (
+                  <div
+                    key={a._id}
+                    className="flex items-center justify-between text-[11px] text-text"
+                  >
+                    <span className="truncate">
+                      {formatTime(a.startedAt)} · {ACTIVITY_LABEL[a.kind]}
+                      {a.taskTitle ? ` — ${a.taskTitle}` : ""}
+                    </span>
+                    {a.note && (
+                      <span className="text-text-muted truncate max-w-[40%]">
+                        “{a.note}”
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="p-4 rounded-xl bg-surface border border-border">
         <div className="flex items-center justify-between mb-3">

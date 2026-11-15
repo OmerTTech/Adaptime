@@ -12,7 +12,13 @@ import type {
 type PreviewSource = "pause" | "flow" | "earlyFinish";
 type AddModalMode = "manual" | "ai";
 
-export type PageName = "today" | "stats" | "settings";
+export type PageName =
+  | "today"
+  | "mentor"
+  | "focus"
+  | "diary"
+  | "stats"
+  | "settings";
 
 interface UIState {
   activePage: PageName;

@@ -3,7 +3,13 @@ import {
   createAsyncThunk,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import type { TaskBlock, DayRoutine, PreviewState } from "@/types";
+import type {
+  TaskBlock,
+  DayRoutine,
+  PreviewState,
+  TaskPriority,
+  TaskCategory,
+} from "@/types";
 import { isScheduled } from "@/types";
 import { getTodayString, generateId, getRandomColor } from "@/utils";
 
@@ -29,6 +35,38 @@ function normalizeTaskDates(
   });
 }
 import { routineApi } from "@/services/api";
+import { getPlannedDayEnd } from "@/engine/timeEngine";
+
+// Sunucudan gelen görev/alt görevler `_id` taşır; istemci `id` bekler.
+type ApiTask = Partial<TaskBlock> & { _id?: string };
+
+function withSubtaskIds(task: TaskBlock): TaskBlock {
+  if (!task.subtasks || task.subtasks.length === 0) return task;
+  return {
+    ...task,
+    subtasks: task.subtasks.map((sub) => ({
+      ...sub,
+      id: sub.id ?? String((sub as { _id?: string })._id ?? generateId()),
+    })),
+  };
+}
+
+function mapApiTasks(tasks: ApiTask[]): TaskBlock[] {
+  return tasks.map(({ _id, ...rest }) =>
+    withSubtaskIds({
+      ...rest,
+      id: rest.id ?? String(_id ?? generateId()),
+    } as TaskBlock),
+  );
+}
+
+/** Tarayıcıda saklanan eski planlarda alt görevler yalnızca `_id` taşıyabilir. */
+export function normalizePersistedRoutine(
+  routine: DayRoutine | null,
+): DayRoutine | null {
+  if (!routine) return routine;
+  return { ...routine, tasks: routine.tasks.map(withSubtaskIds) };
+}
 
 interface RoutineState {
   currentRoutine: DayRoutine | null;
@@ -47,10 +85,7 @@ export const loadTodayRoutine = createAsyncThunk(
     return {
       id: data._id,
       date: data.date,
-      tasks: data.tasks.map(({ _id, ...rest }) => ({
-        ...rest,
-        id: _id,
-      })) as TaskBlock[],
+      tasks: mapApiTasks(data.tasks as ApiTask[]),
       dayEndTime: data.dayEndTime,
       streak: data.streak,
     } as DayRoutine;
@@ -66,10 +101,7 @@ export const loadRoutineHistory = createAsyncThunk(
       date: r.date,
       dayEndTime: r.dayEndTime,
       streak: r.streak,
-      tasks: r.tasks.map(({ _id, ...rest }) => ({
-        ...rest,
-        id: _id,
-      })) as TaskBlock[],
+      tasks: mapApiTasks(r.tasks as ApiTask[]),
     })) as DayRoutine[];
   },
 );
@@ -77,11 +109,14 @@ export const loadRoutineHistory = createAsyncThunk(
 export const saveRoutineToBackend = createAsyncThunk(
   "routine/save",
   async ({ routine, token }: { routine: DayRoutine; token: string }) => {
+    // Geçmiş bir günün planını bugünmüş gibi sunucuya yazma.
+    if (routine.date !== getTodayString()) return Date.now();
     await routineApi.save(
       {
         date: routine.date,
         tasks: routine.tasks,
-        dayEndTime: routine.dayEndTime,
+        // Plandan hesaplanır; silinen görevlerin bıraktığı eski değer kaydedilmesin.
+        dayEndTime: getPlannedDayEnd(routine.tasks, routine.dayEndTime),
         streak: routine.streak,
       },
       token,
@@ -89,6 +124,19 @@ export const saveRoutineToBackend = createAsyncThunk(
     return Date.now();
   },
 );
+
+/**
+ * Gün devri: tarayıcıda kalan plan dünün/geçmiş bir günün tarihini taşıyorsa
+ * yeni plana geç. Aksi halde eklenen görevler eski tarihe kaydedilir ve
+ * istatistikler/mentor (bugünü okur) hiç değişmez.
+ */
+function startTodayIfStale(state: RoutineState) {
+  const today = getTodayString();
+  if (!state.currentRoutine || state.currentRoutine.date !== today) {
+    state.currentRoutine = getInitialRoutine();
+    state.preview = null;
+  }
+}
 
 function getInitialRoutine(): DayRoutine {
   return {
@@ -118,11 +166,25 @@ const routineSlice = createSlice({
         endTime?: number;
         estimatedMinutes?: number;
         color?: string;
+        priority?: TaskPriority;
+        category?: TaskCategory;
+        deadline?: number;
+        description?: string;
       }>,
     ) => {
+      startTodayIfStale(state);
       if (!state.currentRoutine) return;
-      const { title, startTime, endTime, estimatedMinutes, color } =
-        action.payload;
+      const {
+        title,
+        startTime,
+        endTime,
+        estimatedMinutes,
+        color,
+        priority,
+        category,
+        deadline,
+        description,
+      } = action.payload;
       const scheduled =
         typeof startTime === "number" &&
         typeof endTime === "number" &&
@@ -141,6 +203,13 @@ const routineSlice = createSlice({
         status: "pending",
         pausedDuration: 0,
         flowExtensions: 0,
+        priority: priority ?? "medium",
+        category: category ?? "work",
+        createdAtClient: Date.now(),
+        progress: 0,
+        delayCount: 0,
+        ...(deadline ? { deadline } : {}),
+        ...(description ? { description } : {}),
       };
       state.currentRoutine.tasks.push(task);
       if (scheduled) {
@@ -161,10 +230,96 @@ const routineSlice = createSlice({
         (t) => t.id !== action.payload,
       );
     },
+    addSubtasks: (
+      state,
+      action: PayloadAction<{ id: string; titles: string[] }>,
+    ) => {
+      const task = state.currentRoutine?.tasks.find(
+        (t) => t.id === action.payload.id,
+      );
+      if (!task) return;
+      const existing = task.subtasks ?? [];
+      task.subtasks = [
+        ...existing,
+        ...action.payload.titles.map((title) => ({
+          id: generateId(),
+          title,
+          done: false,
+        })),
+      ];
+    },
+    moveTaskAsSubtask: (
+      state,
+      action: PayloadAction<{ id: string; parentId: string }>,
+    ) => {
+      const routine = state.currentRoutine;
+      if (!routine) return;
+      const task = routine.tasks.find((t) => t.id === action.payload.id);
+      const parent = routine.tasks.find(
+        (t) => t.id === action.payload.parentId,
+      );
+      if (!task || !parent || task.id === parent.id) return;
+      const done = task.status === "completed";
+      parent.subtasks = [
+        ...(parent.subtasks ?? []),
+        {
+          id: generateId(),
+          title: task.title,
+          done,
+          ...(done ? { doneAt: Date.now() } : {}),
+        },
+        // Taşınan görevin kendi alt görevleri de onunla birlikte gelir.
+        ...(task.subtasks ?? []).map((sub) => ({ ...sub, id: generateId() })),
+      ];
+      routine.tasks = routine.tasks.filter((t) => t.id !== task.id);
+      routine.dayEndTime = getPlannedDayEnd(routine.tasks, routine.dayEndTime);
+    },
+    detachSubtask: (
+      state,
+      action: PayloadAction<{ id: string; subtaskId: string }>,
+    ) => {
+      const routine = state.currentRoutine;
+      if (!routine) return;
+      const parent = routine.tasks.find((t) => t.id === action.payload.id);
+      const sub = parent?.subtasks?.find(
+        (s) => s.id === action.payload.subtaskId,
+      );
+      if (!parent || !sub) return;
+      parent.subtasks = (parent.subtasks ?? []).filter(
+        (s) => s.id !== sub.id,
+      );
+      // Saatsiz (Yapılacaklar) görev olarak geri döner.
+      routine.tasks.push({
+        id: generateId(),
+        title: sub.title,
+        color: parent.color,
+        status: sub.done ? "completed" : "pending",
+        pausedDuration: 0,
+        flowExtensions: 0,
+        priority: parent.priority ?? "medium",
+        category: parent.category ?? "work",
+        createdAtClient: Date.now(),
+        progress: 0,
+        delayCount: 0,
+        ...(sub.done ? { completedAt: sub.doneAt ?? Date.now() } : {}),
+      });
+    },
+    toggleSubtask: (
+      state,
+      action: PayloadAction<{ id: string; subtaskId: string }>,
+    ) => {
+      const subtask = state.currentRoutine?.tasks
+        .find((t) => t.id === action.payload.id)
+        ?.subtasks?.find((s) => s.id === action.payload.subtaskId);
+      if (!subtask) return;
+      subtask.done = !subtask.done;
+      subtask.doneAt = subtask.done ? Date.now() : undefined;
+    },
     updateTask: (
       state,
       action: PayloadAction<{ id: string; updates: Partial<TaskBlock> }>,
     ) => {
+      startTodayIfStale(state);
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload.id,
@@ -174,6 +329,7 @@ const routineSlice = createSlice({
       }
     },
     startTask: (state, action: PayloadAction<string>) => {
+      startTodayIfStale(state);
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload,
@@ -228,12 +384,15 @@ const routineSlice = createSlice({
       }
     },
     completeTask: (state, action: PayloadAction<string>) => {
+      startTodayIfStale(state);
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload,
       );
       if (task) {
         task.status = "completed";
+        task.completedAt = Date.now();
+        task.progress = 100;
       }
     },
     resetStreak: (state) => {
@@ -287,6 +446,7 @@ const routineSlice = createSlice({
       state,
       action: PayloadAction<{ id: string; startTime: number; endTime: number }>,
     ) => {
+      startTodayIfStale(state);
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload.id,
@@ -330,10 +490,15 @@ const routineSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder.addCase(loadTodayRoutine.fulfilled, (state, action) => {
+      const today = getTodayString();
       if (action.payload) {
-        const today = getTodayString();
         action.payload.tasks = normalizeTaskDates(action.payload.tasks, today);
-        state.currentRoutine = action.payload;
+        state.currentRoutine = { ...action.payload, date: today };
+      } else if (state.currentRoutine?.date !== today) {
+        // Bugün için sunucuda kayıt yok: geçmiş günden kalan planı bugün gibi
+        // gösterme, temiz bir gün başlat.
+        state.currentRoutine = getInitialRoutine();
+        state.preview = null;
       }
       state.lastSynced = Date.now();
     });
@@ -349,6 +514,10 @@ const routineSlice = createSlice({
 
 export const addTask = routineSlice.actions.addTask;
 export const removeTask = routineSlice.actions.removeTask;
+export const addSubtasks = routineSlice.actions.addSubtasks;
+export const toggleSubtask = routineSlice.actions.toggleSubtask;
+export const detachSubtask = routineSlice.actions.detachSubtask;
+export const moveTaskAsSubtask = routineSlice.actions.moveTaskAsSubtask;
 export const updateTask = routineSlice.actions.updateTask;
 export const startTask = routineSlice.actions.startTask;
 export const adjustStartedAt = routineSlice.actions.adjustStartedAt;

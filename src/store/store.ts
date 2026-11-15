@@ -1,4 +1,4 @@
-import { combineReducers, configureStore } from "@reduxjs/toolkit";
+import { combineReducers, configureStore, createListenerMiddleware } from "@reduxjs/toolkit";
 import {
   persistStore,
   persistReducer,
@@ -49,8 +49,10 @@ const storage = (() => {
 
 import routineReducer, {
   normalizePersistedRoutine,
+  completeTask,
 } from "./slices/routineSlice";
-import type { DayRoutine } from "@/types";
+import { spawnNextOccurrence } from "./repeatSpawner";
+import type { DayRoutine, TaskBlock } from "@/types";
 import uiReducer from "./slices/uiSlice";
 import mentorReducer from "./slices/mentorSlice";
 import focusReducer from "./slices/focusSlice";
@@ -88,6 +90,28 @@ const persistConfig: PersistConfig<ReturnType<typeof rootReducer>> = {
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);
 
+// Tekrarlayan görev tamamlanınca bir sonraki örnek hedef güne yazılır.
+const repeatMiddleware = createListenerMiddleware();
+repeatMiddleware.startListening({
+  actionCreator: completeTask,
+  effect: async (action, api) => {
+    const state = api.getState() as {
+      routine: { currentRoutine: { tasks: TaskBlock[] } | null };
+    };
+    const task = state.routine.currentRoutine?.tasks.find(
+      (t) => t.id === action.payload,
+    );
+    if (!task?.repeat) return;
+    const token = localStorage.getItem("adaptime-token");
+    if (!token) return;
+    try {
+      await spawnNextOccurrence(task, token);
+    } catch {
+      /* Ağ hatası: tekrar planı sessizce atlanır */
+    }
+  },
+});
+
 export const store = configureStore({
   reducer: persistedReducer,
   devTools: import.meta.env.DEV,
@@ -96,7 +120,7 @@ export const store = configureStore({
       serializableCheck: {
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
-    }),
+    }).prepend(repeatMiddleware.middleware),
 });
 
 export const persistor = persistStore(store);

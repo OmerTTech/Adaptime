@@ -10,7 +10,14 @@ import {
   TimerOff,
   Pencil,
 } from "lucide-react";
-import { completeTask, pauseTask, skipTask, adjustStartedAt } from "@/store/slices/routineSlice";
+import {
+  completeTask,
+  pauseTask,
+  skipTask,
+  adjustStartedAt,
+  resumeTask,
+  updateTask,
+} from "@/store/slices/routineSlice";
 import { isScheduled, type ScheduledTask } from "@/types";
 import { playSound } from "@/services/sound";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -37,12 +44,16 @@ export default function FocusTimer() {
   const [now, setNow] = useState(Date.now());
   const [isEditStartDialogOpen, setIsEditStartDialogOpen] = useState(false);
   const [adjustedStartTime, setAdjustedStartTime] = useState("");
+  // Aynı anda çalışan görevlerden hangisi ana kartta gösterilecek.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const activeTask = tasks.find((t) => t.status === "active");
-  const pausedTask = tasks.find((t) => t.status === "paused");
-  const rawCurrent = activeTask || pausedTask;
+  // Aynı anda birden çok görev çalışabilir: hepsi aynı panelde listelenir.
+  const runningTasks = tasks.filter(
+    (t): t is ScheduledTask =>
+      isScheduled(t) && (t.status === "active" || t.status === "paused"),
+  );
   const currentTask: ScheduledTask | undefined =
-    rawCurrent && isScheduled(rawCurrent) ? rawCurrent : undefined;
+    runningTasks.find((t) => t.id === selectedId) ?? runningTasks[0];
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -95,6 +106,29 @@ export default function FocusTimer() {
       adjustStartedAt({
         id: currentTask.id,
         startedAt: newStartedAt.getTime(),
+      }),
+    );
+    setIsEditStartDialogOpen(false);
+  }, [currentTask, adjustedStartTime, dispatch]);
+
+  // İkinci düğme: girilen saati hem odak sayacının başına hem de görevin
+  // planlanan başlangıcına yazar.
+  const handleShiftStartTo = useCallback(() => {
+    if (!currentTask || !adjustedStartTime) return;
+    const [h, m] = adjustedStartTime.split(":").map(Number);
+    const newStart = new Date(currentTask.startTime);
+    newStart.setHours(h, m, 0, 0);
+    dispatch(
+      updateTask({
+        id: currentTask.id,
+        updates: {
+          startTime: newStart.getTime(),
+          startedAt: newStart.getTime(),
+          originalDuration: Math.max(
+            60_000,
+            currentTask.endTime - newStart.getTime(),
+          ),
+        },
       }),
     );
     setIsEditStartDialogOpen(false);
@@ -157,6 +191,7 @@ export default function FocusTimer() {
   return (
     <Fragment>
     <div
+      data-focus-timer="true"
       className={`w-full max-w-md mx-auto transition-opacity ${dimmed ? "opacity-30 pointer-events-none" : ""}`}
     >
       <div
@@ -335,6 +370,72 @@ export default function FocusTimer() {
       </div>
     </div>
 
+    {runningTasks.length > 1 && (
+      <div className="w-full max-w-md mx-auto mt-3 rounded-xl border border-border bg-surface p-3">
+        <p className="text-[11px] uppercase tracking-wide text-text-muted mb-2">
+          {runningTasks.length} görev aynı anda çalışıyor · seçmek için dokun
+        </p>
+        <div className="space-y-1">
+          {runningTasks.map((t) => {
+            const selected = t.id === currentTask.id;
+            return (
+              <div
+                key={t.id}
+                className={`flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 transition-colors ${
+                  selected ? "bg-primary/10 ring-1 ring-primary/40" : ""
+                }`}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: t.color }}
+                />
+                <button
+                  onClick={() => setSelectedId(t.id)}
+                  className={`truncate flex-1 text-left ${
+                    selected ? "text-text font-medium" : "text-text-muted hover:text-text"
+                  }`}
+                  title="Bu görevi üstteki odak kartında göster"
+                >
+                  {t.title}
+                  {t.status === "paused" && " (duraklatıldı)"}
+                </button>
+                <span className="tabular-nums text-text-muted shrink-0">
+                  {formatTime(t.startTime)}–{formatTime(t.endTime)}
+                </span>
+                <button
+                  onClick={() => {
+                    if (t.status === "active") {
+                      dispatch(pauseTask(t.id));
+                    } else {
+                      dispatch(resumeTask(t.id));
+                    }
+                  }}
+                  className={`p-1 rounded shrink-0 transition-colors ${
+                    t.status === "active"
+                      ? "text-warning hover:bg-warning/10"
+                      : "text-success hover:bg-success/10"
+                  }`}
+                  title={t.status === "active" ? "Durdur" : "Devam et"}
+                >
+                  {t.status === "active" ? <Pause size={13} /> : <Play size={13} />}
+                </button>
+                <button
+                  onClick={() => {
+                    dispatch(completeTask(t.id));
+                    playSound("taskComplete");
+                  }}
+                  className="p-1 rounded text-success hover:bg-success/10 shrink-0"
+                  title="Tamamla"
+                >
+                  <CheckCircle size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
     <Dialog
       open={isEditStartDialogOpen}
       onOpenChange={setIsEditStartDialogOpen}
@@ -351,12 +452,19 @@ export default function FocusTimer() {
             onChange={(e) => setAdjustedStartTime(e.target.value)}
           />
         </div>
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="flex flex-wrap justify-end gap-2 mt-4">
           <button
             onClick={() => setIsEditStartDialogOpen(false)}
             className="px-4 py-2 rounded-lg border border-border text-text-muted hover:text-text transition-colors text-sm"
           >
             İptal
+          </button>
+          <button
+            onClick={handleShiftStartTo}
+            className="px-4 py-2 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors text-sm font-medium"
+            title="Bu saati görevin planlanan başlangıcı yapar"
+          >
+            Başlangıcı da buna çek
           </button>
           <button
             onClick={handleConfirmEditStart}

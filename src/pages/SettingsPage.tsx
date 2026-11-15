@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { resetRoutine } from "@/store/slices/routineSlice";
+import { setProgressiveLists } from "@/store/slices/uiSlice";
 import { saveMentorSettings } from "@/store/slices/mentorSlice";
 import { useTheme } from "@/contexts/ThemeContext";
 import { routineApi } from "@/services/api";
@@ -9,6 +10,13 @@ import {
   notificationPermission,
   requestNotificationPermission,
 } from "@/services/notifications";
+import {
+  disablePush,
+  enablePush,
+  pushSubscriptionState,
+  pushSupported,
+  sendTestPush,
+} from "@/services/push";
 import {
   SOUND_OPTIONS,
   playSoundId,
@@ -30,6 +38,7 @@ import {
   Bell,
   BellOff,
   BrainCircuit,
+  ListOrdered,
   Clock3,
   Database,
   Download,
@@ -107,14 +116,21 @@ export default function SettingsPage() {
   const [clearing, setClearing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [permission, setPermission] = useState(notificationPermission());
+  const [pushState, setPushState] = useState<
+    "unsupported" | "denied" | "off" | "on"
+  >("off");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
   const { prefs: soundPrefs, update: updateSound } = useSoundPrefs();
   const routineState = useAppSelector((s) => s.routine);
+  const progressiveLists = useAppSelector((s) => s.ui.progressiveLists);
   const diaryEntries = useAppSelector((s) => s.diary.entries);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [soundMessage, setSoundMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setPermission(notificationPermission());
+    void pushSubscriptionState().then(setPushState);
   }, []);
 
   const handleAvatarFile = async (file: File | undefined) => {
@@ -232,6 +248,36 @@ export default function SettingsPage() {
   const handlePermission = async () => {
     const result = await requestNotificationPermission();
     setPermission(result);
+  };
+
+  const togglePush = async () => {
+    if (!token) return;
+    setPushBusy(true);
+    setPushMessage(null);
+    try {
+      if (pushState === "on") {
+        await disablePush(token);
+        setPushState("off");
+        setPushMessage("Arka plan bildirimleri kapatıldı.");
+      } else {
+        const res = await enablePush(token);
+        setPushState(res.ok ? "on" : pushSupported() ? "off" : "unsupported");
+        setPushMessage(res.message ?? "Arka plan bildirimleri açıldı.");
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    if (!token) return;
+    setPushBusy(true);
+    try {
+      const res = await sendTestPush(token);
+      setPushMessage(res.message ?? (res.ok ? "Gönderildi." : "Gönderilemedi."));
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   const timezones =
@@ -358,6 +404,21 @@ export default function SettingsPage() {
               value={settings?.snoozeMinutes ?? 15}
               onChange={(e) =>
                 patch({ snoozeMinutes: Number(e.target.value) || 15 })
+              }
+              disabled={!settings || !token}
+              className="mt-1 w-full px-2.5 py-2 rounded-lg bg-background border border-border text-xs text-text disabled:opacity-50"
+            />
+          </label>
+
+          <label className="text-xs text-text-muted">
+            Mentor en fazla cümle (1-20)
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={settings?.maxSentences ?? 8}
+              onChange={(e) =>
+                patch({ maxSentences: Number(e.target.value) || 8 })
               }
               disabled={!settings || !token}
               className="mt-1 w-full px-2.5 py-2 rounded-lg bg-background border border-border text-xs text-text disabled:opacity-50"
@@ -588,10 +649,51 @@ export default function SettingsPage() {
           </button>
         </div>
         <p className="text-[10px] text-text-muted mt-2">
-          Bildirimler yalnızca uygulama açıkken gösterilir. Tarayıcı kapalıyken
-          bildirim için Push (VAPID) altyapısı gerekir; bu sürümde yok. Kaçırdığın
-          kontroller uygulamayı açtığında mentor ekranında görünür.
+          İzin verildiğinde uygulama açıkken mentor kontrolleri bildirim olarak
+          gösterilir. Sekme kapalıyken de bildirim istiyorsan aşağıdaki arka plan
+          bildirimlerini aç.
         </p>
+
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-medium text-text">
+                <Bell size={16} className={pushState === "on" ? "text-primary" : "text-text-muted"} />
+                Arka plan bildirimleri
+              </div>
+              <p className="text-[10px] text-text-muted mt-1">
+                {pushState === "on"
+                  ? "Bu cihaz kayıtlı: görev saatinde ve uygulama kapalıyken de haber verilir."
+                  : pushState === "denied"
+                    ? "Tarayıcı bildirimleri engellemiş. Site ayarlarından izin ver."
+                    : pushState === "unsupported"
+                      ? "Bu tarayıcı push bildirimlerini desteklemiyor."
+                      : "Kapalı. Açtığında bu cihaz sunucuya kaydedilir (VAPID)."}
+              </p>
+            </div>
+            <button
+              onClick={togglePush}
+              disabled={pushBusy || pushState === "unsupported" || pushState === "denied"}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {pushBusy ? "…" : pushState === "on" ? "Kapat" : "Aç"}
+            </button>
+          </div>
+
+          {pushState === "on" && (
+            <button
+              onClick={handleTestPush}
+              disabled={pushBusy}
+              className="mt-2 w-full px-3 py-1.5 rounded-lg bg-surface-hover text-text text-xs hover:bg-surface-hover/70 transition-colors disabled:opacity-50"
+            >
+              Test bildirimi gönder
+            </button>
+          )}
+
+          {pushMessage && (
+            <p className="text-[10px] text-primary mt-1.5">{pushMessage}</p>
+          )}
+        </div>
       </div>
 
       <div className="p-4 rounded-xl bg-surface border border-border">
@@ -609,6 +711,34 @@ export default function SettingsPage() {
         </div>
         <p className="text-xs text-text-muted mt-1">
           Şu an: {theme === "dark" ? "Karanlık" : "Aydınlık"}
+        </p>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-text">
+            <ListOrdered size={16} className="text-primary" />
+            Liste görünümü
+          </div>
+          <button
+            onClick={() => dispatch(setProgressiveLists(!progressiveLists))}
+            role="switch"
+            aria-checked={progressiveLists}
+            className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+              progressiveLists ? "bg-primary" : "bg-border"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                progressiveLists ? "left-[22px]" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+        <p className="text-xs text-text-muted mt-1">
+          {progressiveLists
+            ? "Uzun listeler “+5 görev daha” ile parça parça açılır. Tüm görevleri birden görmek için kapat."
+            : "Kapalı: yapılacaklar ve takvim listeleri tüm görevleri birden gösterir."}
         </p>
       </div>
 

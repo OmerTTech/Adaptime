@@ -1,14 +1,19 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   loadTodayRoutine,
+  loadRoutineHistory,
   saveRoutineToBackend,
   migrateDates,
   skipTask,
   resetRoutine,
   setStreak,
 } from "@/store/slices/routineSlice";
-import { setActivePage, type PageName } from "@/store/slices/uiSlice";
+import {
+  setActivePage,
+  setSelectedDate,
+  type PageName,
+} from "@/store/slices/uiSlice";
 import { loadAccountabilityState } from "@/store/slices/mentorSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
@@ -31,11 +36,20 @@ import MentorCard from "@/components/accountability/MentorCard";
 import TodayOverview from "@/components/accountability/TodayOverview";
 import DiaryCard from "@/components/accountability/DiaryCard";
 import Avatar from "@/components/ui/Avatar";
-import StatsPage from "@/pages/StatsPage";
-import SettingsPage from "@/pages/SettingsPage";
-import MentorPage from "@/pages/MentorPage";
-import FocusPage from "@/pages/FocusPage";
-import DiaryPage from "@/pages/DiaryPage";
+import MissedRepeats from "@/components/timeline/MissedRepeats";
+import CarryOver from "@/components/timeline/CarryOver";
+import CalendarPanel from "@/components/calendar/CalendarPanel";
+import NowNextCard from "@/components/timeline/NowNextCard";
+import DayPlanView from "@/components/calendar/DayPlanView";
+import ConflictPrompt from "@/components/timeline/ConflictPrompt";
+import { getTodayString } from "@/utils";
+
+// Sayfalar isteğe bağlı yüklenir: ilk açılış paketi küçük kalır.
+const StatsPage = lazy(() => import("@/pages/StatsPage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const MentorPage = lazy(() => import("@/pages/MentorPage"));
+const FocusPage = lazy(() => import("@/pages/FocusPage"));
+const DiaryPage = lazy(() => import("@/pages/DiaryPage"));
 import { isScheduled } from "@/types";
 import {
   BookOpen,
@@ -72,6 +86,9 @@ export default function TodayPage() {
   const page = useAppSelector((state) => state.ui.activePage);
   const routine = useAppSelector((state) => state.routine.currentRoutine);
   const tasks = routine?.tasks ?? [];
+  const selectedDate = useAppSelector((state) => state.ui.selectedDate);
+  // Takvimde bugün dışında bir gün seçiliyse o günün planı gösterilir.
+  const isTodayView = selectedDate === getTodayString();
 
   useAccountabilityEngine(token);
 
@@ -99,10 +116,46 @@ export default function TodayPage() {
     };
   }, [token, dispatch, routine?.date, tasks.length]);
 
+  // Tahmin doğruluğu ve analitik için son 30 günün planı (bir kez).
+  const historyLoaded = useAppSelector((s) => s.routine.historyLoaded);
+  useEffect(() => {
+    if (token && !historyLoaded) {
+      dispatch(loadRoutineHistory({ token, limit: 30 }));
+    }
+  }, [token, historyLoaded, dispatch]);
+
   // Fix task timestamps that are 24h off due to old date bug
   useEffect(() => {
     dispatch(migrateDates());
   }, [dispatch]);
+
+  // Görev başlatılınca odak penceresi görünsün: sayfa yukarı kayar.
+  // Yalnızca yeni başlayan görevlerde tetiklenir (durum yeniden yüklemelerinde değil).
+  const runningSignature = tasks
+    .filter((t) => t.status === "active" && t.startedAt)
+    .map((t) => `${t.id}:${t.startedAt}`)
+    .sort()
+    .join("|");
+  const lastRunningSignature = useRef<string>("");
+  useEffect(() => {
+    if (
+      !runningSignature ||
+      runningSignature === lastRunningSignature.current
+    ) {
+      lastRunningSignature.current = runningSignature;
+      return;
+    }
+    lastRunningSignature.current = runningSignature;
+    if (!isTodayView) return;
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Odak penceresi (FocusTimer) hemen üstte değilse görünür alana getir.
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector('[data-focus-timer="true"]');
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [runningSignature, isTodayView]);
 
   // Auto-skip pending SCHEDULED tasks whose endTime has passed
   useEffect(() => {
@@ -262,41 +315,84 @@ export default function TodayPage() {
               </div>
             </div>
 
-            <TodayOverview />
+            {isTodayView && <TodayOverview />}
 
-            <div className="mt-3 grid grid-cols-1 gap-2">
-              <MentorCard />
-              <DiaryCard />
-            </div>
+            {isTodayView && (
+              <div className="mt-3">
+                <NowNextCard />
+              </div>
+            )}
 
-            {hasActiveTask && (
+            {isTodayView && (
+              <div className="mt-3 space-y-2">
+                <MissedRepeats />
+                <CarryOver />
+              </div>
+            )}
+
+            {isTodayView && (
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <MentorCard />
+                <DiaryCard />
+              </div>
+            )}
+
+            {hasActiveTask && isTodayView && (
               <div className="mt-6">
                 <FocusTimer />
               </div>
             )}
 
-            {viewMode === "oclock" && (
+            {isTodayView && viewMode === "oclock" && (
               <div className={`flex justify-center ${hasActiveTask ? "mt-8" : "mt-8"}`}>
                 <OClock />
               </div>
             )}
 
-            {tasks.length > 0 && (
-              <div className={viewMode === "timeline" ? "" : "mt-8"}>
+            {/* Takvim, yapılacaklar/planlı görevler listesinin hemen üstünde. */}
+            <div
+              className={`w-full max-w-2xl mx-auto ${isTodayView && viewMode === "oclock" ? "mt-6" : "mt-3"}`}
+            >
+              <CalendarPanel />
+            </div>
+
+            {!isTodayView && (
+              <div className="w-full max-w-2xl mx-auto mt-2 space-y-2">
+                <DayPlanView />
+                <button
+                  onClick={() => dispatch(setSelectedDate(getTodayString()))}
+                  className="w-full py-2 rounded-xl bg-surface border border-border text-xs text-text-muted hover:text-text transition-colors"
+                >
+                  Bugüne dön
+                </button>
+              </div>
+            )}
+
+            {isTodayView && tasks.length > 0 && (
+              <div className={viewMode === "timeline" ? "mt-3" : "mt-3"}>
                 <TimelineView />
               </div>
             )}
           </>
         )}
 
-        {page === "mentor" && <MentorPage />}
-        {page === "focus" && <FocusPage />}
-        {page === "diary" && <DiaryPage />}
-        {page === "stats" && <StatsPage />}
-        {page === "settings" && <SettingsPage />}
+        <Suspense
+          fallback={
+            <div className="py-16 text-center text-sm text-text-muted">
+              Yükleniyor…
+            </div>
+          }
+        >
+          {page === "mentor" && <MentorPage />}
+          {page === "focus" && <FocusPage />}
+          {page === "diary" && <DiaryPage />}
+          {page === "stats" && <StatsPage />}
+          {page === "settings" && <SettingsPage />}
+        </Suspense>
       </main>
 
       {page === "today" && <AddRoutineFAB />}
+      <ConflictPrompt />
       {isAddModalOpen && addModalMode === "ai" && <AIAddTaskModal />}
       {isAddModalOpen && addModalMode === "manual" && <AddTaskModal />}
       {isEditModalOpen && <EditTaskModal />}

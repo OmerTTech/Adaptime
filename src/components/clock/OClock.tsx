@@ -5,6 +5,7 @@ import { openEditModal } from "@/store/slices/uiSlice";
 import { formatTime, formatDuration } from "@/utils";
 import { isScheduled } from "@/types";
 import { Pencil, Trash2 } from "lucide-react";
+import ConfirmDeleteButton from "@/components/ui/ConfirmDeleteButton";
 
 const SIZE = 420;
 const CX = SIZE / 2;
@@ -73,6 +74,35 @@ function textArcPath(
     sweep === 1 ? (end - start + 360) % 360 : (start - end + 360) % 360;
   const large = diff > 180 ? 1 : 0;
   return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
+}
+
+const RING_STEP = 22;
+const MAX_RING = 3;
+
+type AngleInterval = { start: number; end: number };
+
+function normDeg(a: number) {
+  return ((a % 360) + 360) % 360;
+}
+
+/** Derece aralığını 0-360 arasında parçalara böler (0'ı saran aralıklar için). */
+function toAngleIntervals(start: number, end: number): AngleInterval[] {
+  const span = end - start;
+  if (span >= 360) return [{ start: 0, end: 360 }];
+  const s = normDeg(start);
+  const e = normDeg(end);
+  if (s <= e) return [{ start: s, end: e }];
+  return [
+    { start: s, end: 360 },
+    { start: 0, end: e },
+  ];
+}
+
+function intervalsOverlap(a: AngleInterval[], b: AngleInterval[]) {
+  const pad = 1.5;
+  return a.some((x) =>
+    b.some((y) => x.start + pad < y.end && y.start + pad < x.end),
+  );
 }
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -147,8 +177,32 @@ export default function OClock() {
       textSide: side,
       fontSize,
       label,
+      midAngle,
+      leftHalf,
+      rightHalf,
       showLabel: maxChars >= 3,
     };
+  });
+
+  // Yazısı komşusuyla çakışan görev bir üst halkaya taşınır; yazılar iç içe binmez.
+  const occupied: AngleInterval[][] = [];
+  const placed = taskRanges.map((task) => {
+    if (!task.showLabel || task.status === "skipped") {
+      return { ...task, textRadius: TEXT_R };
+    }
+    const intervals = toAngleIntervals(
+      task.midAngle - task.leftHalf,
+      task.midAngle + task.rightHalf,
+    );
+    let ring = 0;
+    while (
+      ring < MAX_RING &&
+      intervalsOverlap(occupied[ring] ?? [], intervals)
+    ) {
+      ring += 1;
+    }
+    (occupied[ring] ??= []).push(...intervals);
+    return { ...task, textRadius: TEXT_R + ring * RING_STEP };
   });
 
   const getTaskForAngle = (angle: number) =>
@@ -159,12 +213,12 @@ export default function OClock() {
       <div className="relative select-none w-full max-w-[560px]">
         <svg viewBox="-70 -70 560 560" className="w-full h-auto">
           <defs>
-            {taskRanges.map((task) => {
+            {placed.map((task) => {
               if (task.status === "skipped") return null;
               const pathD = textArcPath(
                 CX,
                 CY,
-                TEXT_R,
+                task.textRadius,
                 task.textStart,
                 task.textEnd,
                 task.textSweep,
@@ -289,7 +343,7 @@ export default function OClock() {
           <circle cx={CX} cy={CY} r={7} fill="#6366f1" />
           <circle cx={CX} cy={CY} r={3} fill="var(--background)" />
 
-          {taskRanges.map((task) => {
+          {placed.map((task) => {
             if (task.status === "skipped" || !task.showLabel) return null;
             return (
               <g key={`txt-${task.id}`}>
@@ -364,18 +418,18 @@ export default function OClock() {
                 <>
                   <button
                     onClick={() => dispatch(openEditModal(task.id))}
-                    className="ml-1 p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                    className="ml-1 p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
                     title="Düzenle"
                   >
-                    <Pencil size={12} style={{ color: "var(--text-muted)" }} />
+                    <Pencil size={14} style={{ color: "var(--text-muted)" }} />
                   </button>
-                  <button
-                    onClick={() => dispatch(removeTask(task.id))}
-                    className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                    title="Sil"
-                  >
-                    <Trash2 size={12} style={{ color: "#ef4444" }} />
-                  </button>
+                  <ConfirmDeleteButton
+                    onConfirm={() => dispatch(removeTask(task.id))}
+                    className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                    armedClassName="bg-danger text-white ring-2 ring-danger/50"
+                    size={14}
+                    icon={<Trash2 size={14} style={{ color: "#ef4444" }} />}
+                  />
                 </>
               )}
             </div>

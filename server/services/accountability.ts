@@ -42,6 +42,7 @@ export interface SettingsPatch {
   hours?: number[];
   tone?: MentorTone;
   snoozeMinutes?: number;
+  maxSentences?: number;
   aiEnabled?: boolean;
   restUntil?: number | null;
   restReason?: string | null;
@@ -54,6 +55,7 @@ export function sanitizeSettings(settings: IMentorSettings) {
     hours: [...(settings.hours ?? DEFAULT_HOURS)].sort((a, b) => a - b),
     tone: settings.tone,
     snoozeMinutes: settings.snoozeMinutes,
+    maxSentences: settings.maxSentences ?? 8,
     aiEnabled: settings.aiEnabled,
     restUntil: settings.restUntil ?? null,
     restReason: settings.restReason ?? null,
@@ -146,6 +148,7 @@ export async function buildContext(
     lastActivityKind: lastActivity?.kind ?? null,
     lastActivityAt: lastActivity?.startedAt ?? null,
     restUntil: settings.restUntil ?? null,
+    maxSentences: settings.maxSentences ?? 8,
     plannedCount: tasks.length,
     completedCount: tasks.filter((t) => t.status === "completed").length,
     diary: diary

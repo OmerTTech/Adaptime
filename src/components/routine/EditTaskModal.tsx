@@ -6,6 +6,7 @@ import {
   moveTaskAsSubtask,
 } from "@/store/slices/routineSlice";
 import { closeEditModal } from "@/store/slices/uiSlice";
+import { suggestionFor } from "@/engine/estimates";
 import {
   getTodayString,
   timeToTimestamp,
@@ -15,7 +16,10 @@ import {
 import {
   CATEGORY_LABEL,
   PRIORITY_LABEL,
+  REPEAT_LABEL,
+  WEEKDAY_LABEL,
   isScheduled,
+  type RepeatFrequency,
   type TaskCategory,
   type TaskPriority,
 } from "@/types";
@@ -49,6 +53,7 @@ export default function EditTaskModal() {
   const allTasks = useAppSelector(
     (s) => s.routine.currentRoutine?.tasks ?? [],
   );
+  const history = useAppSelector((s) => s.routine.history);
 
   const [title, setTitle] = useState(task?.title ?? "");
   const [startTime, setStartTime] = useState(
@@ -73,6 +78,18 @@ export default function EditTaskModal() {
   const [description, setDescription] = useState(task?.description ?? "");
   const [parentId, setParentId] = useState("");
   const [asSubtask, setAsSubtask] = useState(false);
+  const [parallel, setParallel] = useState(task?.parallel ?? false);
+  const estimateHint = suggestionFor(
+    category,
+    Math.max(5, Number(estimatedMinutes) || 30),
+    history,
+  );
+  const [repeat, setRepeat] = useState<RepeatFrequency | "">(
+    task?.repeat ?? "",
+  );
+  const [repeatDays, setRepeatDays] = useState<number[]>(
+    task?.repeatDays ?? [],
+  );
   const today = getTodayString();
 
   if (!task) return null;
@@ -87,6 +104,9 @@ export default function EditTaskModal() {
       color: selectedColor,
       priority,
       category,
+      parallel,
+      repeat: repeat || undefined,
+      repeatDays: repeat === "custom" ? repeatDays : undefined,
       description: description.trim() || undefined,
       deadline:
         deadlineTs && Number.isFinite(deadlineTs) ? deadlineTs : undefined,
@@ -217,6 +237,29 @@ export default function EditTaskModal() {
             </div>
           </div>
 
+          {estimateHint && (
+            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/[0.07] border border-primary/25 text-[11px] text-text-muted">
+              <span className="shrink-0">💡</span>
+              <span className="flex-1">
+                Geçmişte {CATEGORY_LABEL[category]} işlerinde süren tahminin{" "}
+                <strong className="text-text">
+                  {estimateHint.ratio.toFixed(1)}×
+                </strong>{" "}
+                çıkıyor ({estimateHint.samples} görev). Öneri:{" "}
+                {estimateHint.suggestedMinutes} dk
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setEstimatedMinutes(String(estimateHint.suggestedMinutes))
+                }
+                className="shrink-0 text-primary font-medium hover:underline"
+              >
+                Uygula
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-text-muted mb-1 block">
@@ -277,45 +320,103 @@ export default function EditTaskModal() {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none w-fit">
-              <input
-                type="checkbox"
-                checked={asSubtask}
-                onChange={(e) => {
-                  setAsSubtask(e.target.checked);
-                  if (!e.target.checked) setParentId("");
-                }}
-                className="w-4 h-4 ml-1 rounded accent-primary"
-              />
-              <CornerDownRight size={12} />
-              Alt görev yap
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none py-1">
+                <input
+                  type="checkbox"
+                  checked={asSubtask}
+                  onChange={(e) => {
+                    setAsSubtask(e.target.checked);
+                    if (!e.target.checked) setParentId("");
+                  }}
+                  className="w-4 h-4 rounded accent-primary"
+                />
+                <CornerDownRight size={12} />
+                Alt görev yap
+              </label>
+              <label
+                className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none py-1 text-right"
+                title="Bu görevi başka bir görevle aynı saatte yapacaksan işaretle; saat çakışması uyarısı çıkmaz."
+              >
+                <span>Aynı anda yapılabilir</span>
+                <input
+                  type="checkbox"
+                  checked={parallel}
+                  onChange={(e) => setParallel(e.target.checked)}
+                  className="w-4 h-4 rounded accent-primary"
+                />
+              </label>
+            </div>
+            <div className="flex gap-1.5 min-w-0">
+              <select
+                value={parentId}
+                onChange={(e) => setParentId(e.target.value)}
+                disabled={!asSubtask}
+                className="w-full min-w-0 flex-1 px-2 py-1.5 rounded-lg bg-background border border-border text-xs text-text truncate disabled:opacity-40"
+              >
+                <option value="">Ana görev seç…</option>
+                {allTasks
+                  .filter((t) => t.id !== task.id)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!asSubtask || !parentId}
+                onClick={handleMoveAsSubtask}
+                className="shrink-0 bg-primary hover:bg-primary-hover text-white disabled:opacity-40 text-xs px-3 h-auto"
+              >
+                Taşı
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs text-text-muted block">
+              Tekrar <span className="opacity-60">— bitirince yeni plan</span>
             </label>
-            {asSubtask && (
-              <div className="flex gap-1.5 min-w-0">
-                <select
-                  value={parentId}
-                  onChange={(e) => setParentId(e.target.value)}
-                  className="w-full min-w-0 flex-1 px-2 py-1.5 rounded-lg bg-background border border-border text-xs text-text truncate"
-                >
-                  <option value="">Ana görev seç…</option>
-                  {allTasks
-                    .filter((t) => t.id !== task.id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={!parentId}
-                  onClick={handleMoveAsSubtask}
-                  className="shrink-0 bg-primary hover:bg-primary-hover text-white disabled:opacity-40 text-xs px-3 h-auto"
-                >
-                  Taşı
-                </Button>
+            <select
+              value={repeat}
+              onChange={(e) => setRepeat(e.target.value as RepeatFrequency | "")}
+              className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+            >
+              <option value="">Tekrar yok</option>
+              {(Object.keys(REPEAT_LABEL) as RepeatFrequency[]).map((f) => (
+                <option key={f} value={f}>
+                  {REPEAT_LABEL[f]}
+                </option>
+              ))}
+            </select>
+            {repeat === "custom" && (
+              <div className="flex flex-wrap gap-1">
+                {WEEKDAY_LABEL.map((label, index) => {
+                  const on = repeatDays.includes(index);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() =>
+                        setRepeatDays((prev) =>
+                          on
+                            ? prev.filter((d) => d !== index)
+                            : [...prev, index],
+                        )
+                      }
+                      className={`px-2 py-1 rounded-lg text-[11px] border transition-colors ${
+                        on
+                          ? "bg-primary text-white border-primary"
+                          : "bg-background border-border text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

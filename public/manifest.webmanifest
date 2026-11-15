@@ -1,0 +1,26 @@
+{
+  "name": "Adaptime — günün akışkan planı",
+  "short_name": "Adaptime",
+  "description": "Gününü saat dilimlerine böl, planın gerçeğe uymadığı anlarda hızlı karar ver.",
+  "lang": "tr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e0e15",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

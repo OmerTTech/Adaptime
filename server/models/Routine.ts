@@ -23,6 +23,8 @@ export interface ITaskBlock {
   estimatedMinutes?: number;
   color: string;
   status: "pending" | "active" | "paused" | "completed" | "skipped";
+  /** Saatsiz görev önceki günden devredildiyse kaynak tarih. */
+  carriedFrom?: string;
   startedAt?: number;
   pausedAt?: number;
   pausedDuration: number;
@@ -33,6 +35,9 @@ export interface ITaskBlock {
   firstAction?: string;
   notes?: string;
   delayCount?: number;
+  parallel?: boolean;
+  repeat?: "hourly" | "daily" | "weekly" | "monthly" | "custom";
+  repeatDays?: number[];
   subtasks?: ISubtask[];
 }
 
@@ -75,6 +80,7 @@ const taskBlockSchema = new Schema<ITaskBlock>(
     originalDuration: { type: Number },
     estimatedMinutes: { type: Number },
     color: { type: String, default: "#6366f1" },
+    carriedFrom: { type: String },
     status: {
       type: String,
       enum: ["pending", "active", "paused", "completed", "skipped"],
@@ -90,6 +96,12 @@ const taskBlockSchema = new Schema<ITaskBlock>(
     firstAction: { type: String },
     notes: { type: String },
     delayCount: { type: Number, default: 0 },
+    parallel: { type: Boolean, default: false },
+    repeat: {
+      type: String,
+      enum: ["hourly", "daily", "weekly", "monthly", "custom"],
+    },
+    repeatDays: { type: [Number], default: undefined },
     subtasks: { type: [subtaskSchema], default: [] },
   },
   { _id: true },

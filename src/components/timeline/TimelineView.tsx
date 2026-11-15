@@ -8,7 +8,6 @@ import {
   CheckCircle,
   SkipForward,
   Clock,
-  Trash2,
   Pencil,
   ChevronRight,
   Crosshair,
@@ -22,11 +21,13 @@ import {
   skipTask,
   updateTask,
   removeTask,
+  adjustTaskEnd,
   toggleSubtask,
   detachSubtask,
 } from "@/store/slices/routineSlice";
 import { openPauseModal, openEditModal } from "@/store/slices/uiSlice";
 import { playSound } from "@/services/sound";
+import ConfirmDeleteButton from "@/components/ui/ConfirmDeleteButton";
 import UnscheduledTasks from "./UnscheduledTasks";
 
 export default function TimelineView() {
@@ -220,6 +221,14 @@ export default function TimelineView() {
                 {task.status === "skipped" && (
                   <span className="text-xs text-danger">Pass geçildi</span>
                 )}
+                {task.parallel && (
+                  <span
+                    className="text-[10px] text-primary shrink-0"
+                    title="Aynı anda başka bir görevle yapılabilir"
+                  >
+                    ∥ aynı anda
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs text-text-muted">
@@ -228,6 +237,28 @@ export default function TimelineView() {
                 <span className="text-xs text-text-muted">
                   {formatDuration(duration)}
                 </span>
+                {(task.status === "active" || task.status === "paused") && (
+                  <div className="flex items-center gap-1 ml-auto shrink-0">
+                    <button
+                      onClick={() =>
+                        dispatch(adjustTaskEnd({ id: task.id, minutes: -5 }))
+                      }
+                      className="px-1.5 py-0.5 rounded-md bg-surface-hover text-text-muted hover:text-text text-[11px] tabular-nums transition-colors"
+                      title="Bitişi 5 dk öne al"
+                    >
+                      −5
+                    </button>
+                    <button
+                      onClick={() =>
+                        dispatch(adjustTaskEnd({ id: task.id, minutes: 5 }))
+                      }
+                      className="px-1.5 py-0.5 rounded-md bg-surface-hover text-text-muted hover:text-text text-[11px] tabular-nums transition-colors"
+                      title="Bitişi 5 dk uzat"
+                    >
+                      +5
+                    </button>
+                  </div>
+                )}
               </div>
               {(task.priority || task.deadline || (task.delayCount ?? 0) > 0) && (
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -450,13 +481,11 @@ export default function TimelineView() {
                   >
                     <Pencil size={16} />
                   </button>
-                  <button
-                    onClick={() => dispatch(removeTask(task.id))}
+                  <ConfirmDeleteButton
+                    onConfirm={() => dispatch(removeTask(task.id))}
                     className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
-                    title="Sil"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                    size={16}
+                  />
                 </>
               )}
             </div>

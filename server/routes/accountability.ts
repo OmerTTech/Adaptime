@@ -94,6 +94,10 @@ router.put("/settings", authMiddleware, async (req: AuthRequest, res) => {
       settings.snoozeMinutes = Math.min(180, Math.max(5, Math.round(body.snoozeMinutes)));
     }
 
+    if (typeof body.maxSentences === "number") {
+      settings.maxSentences = Math.min(20, Math.max(1, Math.round(body.maxSentences)));
+    }
+
     if (body.restUntil === null) {
       settings.restUntil = null;
       settings.restReason = null;

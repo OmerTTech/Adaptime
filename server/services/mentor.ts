@@ -36,6 +36,8 @@ export interface MentorContext {
   lastActivityKind?: string | null;
   lastActivityAt?: number | null;
   restUntil?: number | null;
+  /** Mentor yanıtındaki üst cümle sayısı (kullanıcı ayarı). */
+  maxSentences?: number;
   plannedCount: number;
   completedCount: number;
   diary?: {
@@ -177,6 +179,7 @@ function contextPayload(ctx: MentorContext) {
     lastUserResponse: ctx.lastResponse ?? null,
     lastReportedActivity: ctx.lastActivityKind ?? null,
     restingUntil: ctx.restUntil ?? null,
+    maxSentences: ctx.maxSentences ?? 8,
     plannedCount: ctx.plannedCount,
     completedCount: ctx.completedCount,
     latestDiary: ctx.diary ?? null,
@@ -187,7 +190,7 @@ const MENTOR_SYSTEM = `Sen Adaptime'ın kişisel hesap verebilirlik mentorüsün
 Tarzın: kısa, net, stratejik ve kararlı. Gereksiz motivasyon konuşması yapmazsın.
 Ertelemeyi fark eder, doğrudan ama suçluluk hissettirmeden söylersin.
 Kullanıcının yorgunluğunu ve dinlenme durumunu dikkate alırsın.
-Mesajın 1-4 cümle olmalı. Markdown, emoji, başlık, madde işareti kullanma.
+Mesaj uzunluğu istemde verilen cümle sınırına uyar. Markdown, emoji, başlık, madde işareti kullanma.
 Sadece mesaj metnini döndür; açıklama veya JSON yazma.
 Verilmeyen bir şeyi olmuş gibi anlatma; sadece bağlamdaki verilere dayan.
 Kullanıcıya görev tamamlama onayı sormadan "tamamladın" deme.`;
@@ -205,7 +208,9 @@ export async function composeCheckMessage(
 ${JSON.stringify(contextPayload(ctx))}
 
 Bu bir "${situation}" durumundaki saatlik hesap verebilirlik kontrolü.
-Kullanıcıya görevini hatırlatan, gerçek ilerlemeyi soran ve somut bir sonraki küçük adım veren 1-3 cümlelik mesaj yaz.
+Kullanıcıya görevini hatırlatan, gerçek ilerlemeyi soran ve somut bir sonraki küçük adım veren bir mesaj yaz.
+Mesaj en az 1, en fazla ${Math.min(20, Math.max(1, ctx.maxSentences ?? 8))} cümle olabilir; konuşma uzunluğunu kullanıcının ayarına göre seç.
+Görev çokluğuna, öncelik seviyelerine ve deadline'lara göre karar ver; yetişmesi gereken iş varsa zaman önerisi ver, uygunsa tek cümlelik kısa bir motivasyon ekle.
 Daha önce söylenen mesajı birebir tekrarlama.`;
 
   try {

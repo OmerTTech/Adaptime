@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { getTodayString } from "@/utils";
 import type {
   ViewMode,
   PauseMode,
@@ -20,8 +21,25 @@ export type PageName =
   | "stats"
   | "settings";
 
+const PROGRESSIVE_KEY = "adaptime-progressive-lists";
+
+/** Uzun listeler parça parça mı gösterilsin? (Ayarlardan kapatılabilir) */
+function readProgressiveLists(): boolean {
+  try {
+    return localStorage.getItem(PROGRESSIVE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 interface UIState {
   activePage: PageName;
+  /** Açıkken uzun listeler "+5 görev daha" ile parça parça gösterilir. */
+  progressiveLists: boolean;
+  /** Takvimde seçili gün (YYYY-MM-DD); bugün varsayılan. */
+  selectedDate: string;
+  /** Takvimden ekleme/silme sonrası gün planının yeniden yüklenmesi için. */
+  dayRefresh: number;
   viewMode: ViewMode;
   isAddModalOpen: boolean;
   addModalMode: AddModalMode;
@@ -54,6 +72,9 @@ const uiSlice = createSlice({
   name: "ui",
   initialState: {
     activePage: "today",
+    progressiveLists: readProgressiveLists(),
+    selectedDate: getTodayString(),
+    dayRefresh: 0,
     viewMode: "oclock",
     isAddModalOpen: false,
     addModalMode: "manual",
@@ -80,6 +101,20 @@ const uiSlice = createSlice({
   reducers: {
     setActivePage: (state, action: PayloadAction<PageName>) => {
       state.activePage = action.payload;
+    },
+    setSelectedDate: (state, action: PayloadAction<string>) => {
+      state.selectedDate = action.payload;
+    },
+    setProgressiveLists: (state, action: PayloadAction<boolean>) => {
+      state.progressiveLists = action.payload;
+      try {
+        localStorage.setItem(PROGRESSIVE_KEY, action.payload ? "1" : "0");
+      } catch {
+        /* özel mod: yalnızca bu oturumda geçerli */
+      }
+    },
+    bumpDayRefresh: (state) => {
+      state.dayRefresh += 1;
     },
     setViewMode: (state, action: PayloadAction<ViewMode>) => {
       state.viewMode = action.payload;
@@ -217,6 +252,9 @@ const uiSlice = createSlice({
 
 export const {
   setActivePage,
+  setSelectedDate,
+  setProgressiveLists,
+  bumpDayRefresh,
   setViewMode,
   toggleViewMode,
   openAddModal,

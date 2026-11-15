@@ -94,6 +94,173 @@ export const routineApi = {
   ) =>
     apiFetch<unknown>("/api/routines", { method: "POST", body: data, token }),
 
+  appendTask: (date: string, task: unknown, token: string) =>
+    apiFetch<{ ok: boolean; date: string }>(
+      `/api/routines/${date}/append-task`,
+      { method: "POST", body: { task }, token },
+    ),
+
+  missedRepeats: (token: string) =>
+    apiFetch<{
+      missed: Array<{
+        date: string;
+        taskId: string;
+        title: string;
+        color: string;
+        repeat: string;
+        startTime: number | null;
+        endTime: number | null;
+        originalDuration: number | null;
+      }>;
+    }>("/api/routines/missed-repeats", { token }),
+
+  handleMissed: (
+    date: string,
+    taskId: string,
+    action: "move" | "skip" | "delete",
+    token: string,
+  ) =>
+    apiFetch<{ ok: boolean }>(`/api/routines/${date}/missed-action`, {
+      method: "POST",
+      body: { taskId, action },
+      token,
+    }),
+
+  unfinished: (token: string, date?: string) =>
+    apiFetch<{
+      date: string;
+      tasks: Array<{
+        date: string;
+        taskId: string;
+        title: string;
+        color: string;
+        status: string;
+        priority: string;
+        category: string;
+        startTime: number | null;
+        endTime: number | null;
+        estimatedMinutes: number | null;
+        subtaskCount: number;
+      }>;
+    }>(`/api/routines/unfinished${date ? `?date=${date}` : ""}`, { token }),
+
+  carryAll: (date: string, action: "move" | "skip", token: string) =>
+    apiFetch<{ ok: boolean; moved?: number; skipped?: number }>(
+      `/api/routines/${date}/carry-all`,
+      { method: "POST", body: { action }, token },
+    ),
+
+  archive: (token: string, limit = 20) =>
+    apiFetch<{
+      items: Array<{
+        id: string;
+        dateKey: string;
+        removedAt: number;
+        title: string;
+        color: string;
+      }>;
+    }>(`/api/routines/archive?limit=${limit}`, { token }),
+
+  restoreArchived: (id: string, token: string) =>
+    apiFetch<{ ok: boolean }>(`/api/routines/archive/${id}/restore`, {
+      method: "POST",
+      token,
+    }),
+
+  horizon: (token: string, days = 7) =>
+    apiFetch<{
+      days: Array<{
+        date: string;
+        tasks: Array<{
+          title: string;
+          color: string;
+          status: string;
+          startTime: number | null;
+          endTime: number | null;
+          estimatedMinutes: number | null;
+        }>;
+      }>;
+    }>(`/api/routines/horizon?days=${days}`, { token }),
+
+  dayFull: (date: string, token: string) =>
+    apiFetch<{
+      date: string;
+      dayEndTime: number;
+      streak: number;
+      isToday: boolean;
+      tasks: Array<{
+        id: string;
+        title: string;
+        color: string;
+        status: string;
+        startTime: number | null;
+        endTime: number | null;
+        estimatedMinutes: number | null;
+        priority: string;
+        category: string;
+        repeat: string | null;
+        sourceDate?: string;
+        subtaskCount?: number;
+        virtual: boolean;
+      }>;
+    }>(`/api/routines/day-full?date=${date}`, { token }),
+
+  calendarMonth: (anchor: string, token: string) =>
+    apiFetch<{
+      view: "month";
+      year: number;
+      month: number;
+      today: string;
+      days: Array<{
+        date: string;
+        planned: number;
+        done: number;
+        open: number;
+        repeats: number;
+        total: number;
+      }>;
+    }>(`/api/routines/calendar?view=month&anchor=${anchor}`, { token }),
+
+  calendarYear: (year: number, token: string) =>
+    apiFetch<{
+      view: "year";
+      year: number;
+      today: string;
+      months: Array<{
+        month: number;
+        planned: number;
+        done: number;
+        open: number;
+        total: number;
+      }>;
+    }>(`/api/routines/calendar?view=year&anchor=${year}-01-01`, { token }),
+
+  taskUpdate: (
+    date: string,
+    taskId: string,
+    patch: {
+      status?: string;
+      title?: string;
+      startTime?: number | null;
+      endTime?: number | null;
+      estimatedMinutes?: number | null;
+      /** Verilirse görev bu güne taşınır. */
+      date?: string;
+    },
+    token: string,
+  ) =>
+    apiFetch<{ ok: boolean; movedTo?: string }>(
+      `/api/routines/${date}/task-update`,
+      { method: "POST", body: { taskId, patch }, token },
+    ),
+
+  taskDelete: (date: string, taskId: string, token: string) =>
+    apiFetch<{ ok: boolean }>(`/api/routines/${date}/task-delete`, {
+      method: "POST",
+      body: { taskId },
+      token,
+    }),
+
   getStreak: (token: string) =>
     apiFetch<{
       currentStreak: number;
@@ -109,6 +276,37 @@ export const routineApi = {
   deleteAll: (token: string) =>
     apiFetch<{ success: boolean }>("/api/routines", {
       method: "DELETE",
+      token,
+    }),
+};
+
+// Web Push
+export const pushApi = {
+  key: () =>
+    apiFetch<{ publicKey: string | null; enabled: boolean }>("/api/push/key"),
+
+  subscribe: (subscription: PushSubscriptionJSON, token: string) =>
+    apiFetch<{ ok: boolean; enabled: boolean }>("/api/push/subscribe", {
+      method: "POST",
+      body: { subscription },
+      token,
+    }),
+
+  unsubscribe: (endpoint: string | undefined, token: string) =>
+    apiFetch<{ ok: boolean }>("/api/push/unsubscribe", {
+      method: "POST",
+      body: endpoint ? { endpoint } : {},
+      token,
+    }),
+
+  status: (token: string) =>
+    apiFetch<{ subscribed: number; enabled: boolean }>("/api/push/status", {
+      token,
+    }),
+
+  test: (token: string) =>
+    apiFetch<{ ok: boolean; sent: number; total: number }>("/api/push/test", {
+      method: "POST",
       token,
     }),
 };

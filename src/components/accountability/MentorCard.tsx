@@ -5,11 +5,13 @@ import { requestMentorCheck } from "@/store/slices/mentorSlice";
 import { setActivePage } from "@/store/slices/uiSlice";
 import { formatClock, formatRelative } from "@/utils";
 import CheckActions from "./CheckActions";
+import MentorQuickSettings from "./MentorQuickSettings";
 import {
   ArrowRight,
   BrainCircuit,
   Loader2,
   RefreshCw,
+  Settings,
   Sparkles,
 } from "lucide-react";
 
@@ -23,6 +25,7 @@ export default function MentorCard() {
   const ai = useAppSelector((s) => s.mentor.ai);
   const settings = useAppSelector((s) => s.mentor.settings);
   const [requesting, setRequesting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -76,6 +79,13 @@ export default function MentorCard() {
               <RefreshCw size={12} />
             )}
             Kontrol
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-1.5 rounded-lg bg-surface border border-border text-text-muted hover:text-text transition-colors"
+            title="Mentor ayarları"
+          >
+            <Settings size={13} />
           </button>
           <button
             onClick={() => dispatch(setActivePage("mentor"))}
@@ -133,6 +143,8 @@ export default function MentorCard() {
           <p className="text-sm text-text">{reply.message}</p>
         </div>
       )}
+
+      <MentorQuickSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

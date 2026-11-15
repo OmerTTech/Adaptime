@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { loadRoutineHistory } from "@/store/slices/routineSlice";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { ACTIVITY_LABEL, isScheduled } from "@/types";
+import { ACTIVITY_LABEL, CATEGORY_LABEL, isScheduled } from "@/types";
+import { estimateAccuracy } from "@/engine/estimates";
 import { formatTime } from "@/utils";
 import {
   Flame,
@@ -75,6 +76,8 @@ export default function StatsPage() {
     setFresh(build(FRESH));
     setDeep(build(DEEP));
   }, [history, currentRoutine]);
+
+  const accuracy = estimateAccuracy(history);
 
   const scheduledToday = (currentRoutine?.tasks ?? []).filter(isScheduled);
   const doneToday = scheduledToday.filter((t) => t.status === "completed").length;
@@ -190,6 +193,48 @@ export default function StatsPage() {
           </p>
         </div>
       </div>
+
+      {accuracy.length > 0 && (
+        <div className="p-4 rounded-xl bg-surface border border-border">
+          <div className="flex items-center gap-2 text-sm font-medium text-text">
+            <TrendingUp size={14} className="text-primary" />
+            Tahmin doğruluğu
+          </div>
+          <p className="text-[11px] text-text-muted mt-1 mb-3">
+            Gerçekleşen sürenin planlanan süreye oranı. 1.0 tam isabet; 1.4
+            sürekli kısa tahmin ettiğin anlamına gelir.
+          </p>
+          <div className="space-y-2.5">
+            {accuracy.map((item) => (
+              <div key={item.category}>
+                <div className="flex items-center justify-between text-[11px] mb-1">
+                  <span className="text-text">
+                    {CATEGORY_LABEL[item.category]}
+                  </span>
+                  <span className="text-text-muted tabular-nums">
+                    {item.ratio.toFixed(1)}× · {item.samples} görev · ort.{" "}
+                    {Math.round(item.averageMinutes)} dk
+                  </span>
+                </div>
+                <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, item.ratio * 50)}%`,
+                      backgroundColor:
+                        item.ratio > 1.15
+                          ? "#f59e0b"
+                          : item.ratio < 0.85
+                            ? "#6366f1"
+                            : "var(--success)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {summary && (
         <div className="p-4 rounded-xl bg-surface border border-border space-y-3">

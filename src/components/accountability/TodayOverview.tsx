@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { updateTask } from "@/store/slices/routineSlice";
+import { openEditModal } from "@/store/slices/uiSlice";
 import { isScheduled, PRIORITY_ORDER, type TaskBlock } from "@/types";
 import { formatClock, formatRelative } from "@/utils";
 import {
@@ -27,6 +29,7 @@ function topPriority(tasks: TaskBlock[]): TaskBlock | null {
 }
 
 export default function TodayOverview() {
+  const dispatch = useAppDispatch();
   const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
   const summary = useAppSelector((s) => s.mentor.summary);
   const nextCheckAt = useAppSelector((s) => s.mentor.nextCheckAt);
@@ -52,6 +55,13 @@ export default function TodayOverview() {
     for (let j = i + 1; j < openScheduled.length; j += 1) {
       const a = openScheduled[i];
       const b = openScheduled[j];
+      // Kullanıcı iki işi aynı anda yapabiliyor: "birlikte" işaretli çiftler uyarı üretmez.
+      if (
+        a.parallel ||
+        b.parallel
+      ) {
+        continue;
+      }
       if (isScheduled(a) && isScheduled(b) && a.startTime < b.endTime && b.startTime < a.endTime) {
         conflicts.push({ first: a, second: b });
       }
@@ -121,13 +131,39 @@ export default function TodayOverview() {
       </div>
 
       {conflicts.length > 0 && (
-        <div className="flex items-start gap-2 p-2.5 rounded-xl bg-warning/10 border border-warning/30 text-warning">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          <p className="text-[11px] leading-snug">
-            {conflicts.length} plan çakışması: “{conflicts[0].first.title}” ile
-            “{conflicts[0].second.title}” aynı saat aralığında. Birini
-            kaydırman gerekiyor.
-          </p>
+        <div className="p-2.5 rounded-xl bg-warning/10 border border-warning/30">
+          <div className="flex items-start gap-2 text-warning">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <p className="text-[11px] leading-snug">
+              “{conflicts[0].first.title}” ile “{conflicts[0].second.title}”
+              aynı saat aralığında.
+              {conflicts.length > 1 && ` (+${conflicts.length - 1} çakışma)`}
+              <span className="block text-text-muted">
+                İkisini aynı anda yapabiliyorsan sorun değil, “Aynı anda” işaretle; yoksa
+                saatini kaydır.
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-2 pl-5">
+            <button
+              onClick={() => {
+                const { first, second } = conflicts[0];
+                dispatch(updateTask({ id: first.id, updates: { parallel: true } }));
+                dispatch(
+                  updateTask({ id: second.id, updates: { parallel: true } }),
+                );
+              }}
+              className="px-2 py-1 rounded-lg bg-warning/20 text-warning text-[11px] font-medium hover:bg-warning/30 transition-colors"
+            >
+              Aynı anda yapıyorum
+            </button>
+            <button
+              onClick={() => dispatch(openEditModal(conflicts[0].first.id))}
+              className="px-2 py-1 rounded-lg bg-surface-hover text-text-muted text-[11px] hover:text-text transition-colors"
+            >
+              Zamanı kaydır
+            </button>
+          </div>
         </div>
       )}
 

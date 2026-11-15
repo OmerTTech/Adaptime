@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { useAppDispatch } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { addTask } from "@/store/slices/routineSlice";
-import { closeAddModal } from "@/store/slices/uiSlice";
+import { bumpDayRefresh, closeAddModal } from "@/store/slices/uiSlice";
+import { useAuth } from "@/contexts/AuthContext";
+import { routineApi } from "@/services/api";
 import { getTodayString, timeToTimestamp, getRandomColor } from "@/utils";
 import {
   CATEGORY_LABEL,
   PRIORITY_LABEL,
+  REPEAT_LABEL,
+  WEEKDAY_LABEL,
+  type RepeatFrequency,
   type TaskCategory,
   type TaskPriority,
 } from "@/types";
@@ -17,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Zap } from "lucide-react";
+import { CalendarDays, Clock, CornerDownRight, Zap } from "lucide-react";
 
 const PRESET_COLORS = [
   "#FF6B6B",
@@ -34,7 +39,13 @@ type Mode = "quick" | "scheduled";
 
 export default function AddTaskModal() {
   const dispatch = useAppDispatch();
+  const { token } = useAuth();
+  const allTasks = useAppSelector(
+    (s) => s.routine.currentRoutine?.tasks ?? [],
+  );
+  const selectedDate = useAppSelector((s) => s.ui.selectedDate);
   const [mode, setMode] = useState<Mode>("quick");
+  const [date, setDate] = useState(selectedDate);
   const [title, setTitle] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -44,9 +55,14 @@ export default function AddTaskModal() {
   const [deadline, setDeadline] = useState("");
   const [description, setDescription] = useState("");
   const [selectedColor, setSelectedColor] = useState(getRandomColor());
+  const [asSubtask, setAsSubtask] = useState(false);
+  const [parentId, setParentId] = useState("");
+  const [parallel, setParallel] = useState(false);
+  const [repeat, setRepeat] = useState<RepeatFrequency | "">("");
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
   const today = getTodayString();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
@@ -58,21 +74,91 @@ export default function AddTaskModal() {
       category,
       ...(deadlineTs && Number.isFinite(deadlineTs) ? { deadline: deadlineTs } : {}),
       ...(description.trim() ? { description: description.trim() } : {}),
+      ...(parallel ? { parallel: true } : {}),
+      ...(repeat ? { repeat, repeatDays: repeat === "custom" ? repeatDays : undefined } : {}),
     };
+    const est = estimatedMinutes ? Math.max(1, Number(estimatedMinutes)) : 30;
+    const isToday = date === today;
 
-    if (mode === "scheduled") {
-      if (!startTime || !endTime) return;
-      const start = timeToTimestamp(startTime, today);
-      let end = timeToTimestamp(endTime, today);
-      if (end <= start) {
-        end = timeToTimestamp(endTime, getTodayString(1));
+    // Bugün dışındaki bir gün seçiliyse doğrudan o günün planına yaz.
+    if (!isToday) {
+      const base = {
+        ...common,
+        color: selectedColor,
+        status: "pending",
+        pausedDuration: 0,
+        flowExtensions: 0,
+        progress: 0,
+        delayCount: 0,
+        createdAtClient: Date.now(),
+        subtasks: [],
+      };
+
+      let payload: Record<string, unknown> = { ...base, estimatedMinutes: est };
+      if (mode === "scheduled" && (startTime || endTime)) {
+        let start = startTime ? timeToTimestamp(startTime, date) : undefined;
+        let end = endTime ? timeToTimestamp(endTime, date) : undefined;
+        if (start !== undefined && start < Date.now()) {
+          // Geçmiş bir saate plan yapılmasın: süre bilgisiyle saatsiz kalır.
+          payload = { ...base, estimatedMinutes: est };
+        } else {
+          if (start !== undefined && end !== undefined && end <= start) end = undefined;
+          if (start !== undefined && end === undefined) end = start + est * 60_000;
+          if (start === undefined && end !== undefined) start = end - est * 60_000;
+          if (start !== undefined && end !== undefined) {
+            payload = {
+              ...base,
+              startTime: start,
+              endTime: end,
+              originalDuration: end - start,
+            };
+          }
+        }
       }
-      if (end <= start) return;
+
+      if (token) {
+        try {
+          await routineApi.appendTask(date, payload, token);
+          dispatch(bumpDayRefresh());
+        } catch {
+          /* sessizce kapatma; kullanıcı tekrar deneyebilir */
+          return;
+        }
+      }
+
+      setTitle("");
+      setStartTime("");
+      setEndTime("");
+      setEstimatedMinutes("");
+      setDeadline("");
+      setDescription("");
+      setPriority("medium");
+      setCategory("work");
+      setParallel(false);
+      setRepeat("");
+      setRepeatDays([]);
+      dispatch(closeAddModal());
+      return;
+    }
+
+    // Alt görev olarak ekleniyorsa saat/plan bilgisi kullanılmaz.
+    if (asSubtask && parentId) {
+      dispatch(addTask({ ...common, parentId }));
+    } else if (mode === "scheduled" && (startTime || endTime)) {
+      // Tek saat de yeter: eksik taraf tahmini süreden hesaplanır.
+      let start = startTime ? timeToTimestamp(startTime, today) : undefined;
+      let end = endTime ? timeToTimestamp(endTime, today) : undefined;
+      if (start !== undefined && end !== undefined) {
+        if (end <= start) end = timeToTimestamp(endTime, getTodayString(1));
+        if (end <= start) return;
+      } else if (start !== undefined) {
+        end = start + est * 60_000;
+      } else if (end !== undefined) {
+        start = end - est * 60_000;
+      }
+      if (start === undefined || end === undefined) return;
       dispatch(addTask({ ...common, startTime: start, endTime: end }));
     } else {
-      const est = estimatedMinutes
-        ? Math.max(1, Number(estimatedMinutes))
-        : undefined;
       dispatch(addTask({ ...common, estimatedMinutes: est }));
     }
 
@@ -84,6 +170,11 @@ export default function AddTaskModal() {
     setDescription("");
     setPriority("medium");
     setCategory("work");
+    setAsSubtask(false);
+    setParentId("");
+    setParallel(false);
+    setRepeat("");
+    setRepeatDays([]);
     dispatch(closeAddModal());
   };
 
@@ -142,48 +233,161 @@ export default function AddTaskModal() {
             />
           </div>
 
-          {mode === "scheduled" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">
-                  Başlangıç
-                </label>
-                <Input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="bg-background border-border text-text"
-                  required
-                />
+          <div>
+            <label className="text-xs text-text-muted mb-1 flex items-center gap-1.5">
+              <CalendarDays size={12} />
+              Tarih
+            </label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value || today)}
+              className="bg-background border-border text-text"
+            />
+            {date !== today && (
+              <p className="text-[11px] text-primary mt-1">
+                Görev bugüne değil, seçtiğin güne eklenecek.
+              </p>
+            )}
+          </div>
+
+          {mode === "scheduled" && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">
+                    Başlangıç <span className="opacity-60">— opsiyonel</span>
+                  </label>
+                  <Input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="bg-background border-border text-text"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">
+                    Bitiş <span className="opacity-60">— opsiyonel</span>
+                  </label>
+                  <Input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className="bg-background border-border text-text"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">
-                  Bitiş
-                </label>
-                <Input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className="bg-background border-border text-text"
-                  required
-                />
-              </div>
-            </div>
-          ) : (
-            <div>
-              <label className="text-xs text-text-muted mb-1 block">
-                Tahmini Süre (dk) <span className="opacity-60">— opsiyonel</span>
-              </label>
-              <Input
-                type="number"
-                min={1}
-                value={estimatedMinutes}
-                onChange={(e) => setEstimatedMinutes(e.target.value)}
-                placeholder="Örn: 45"
-                className="bg-background border-border text-text"
-              />
+              <p className="text-[11px] text-text-muted/80 leading-snug">
+                Tek saat yeterli: eksik olan taraf tahmini süreden hesaplanır.
+                Hiç saat vermezsen görev saatsiz kalır ve Başlat'a basınca
+                otomatik planlanır.
+              </p>
             </div>
           )}
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Tahmini Süre (dk) <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <Input
+              type="number"
+              min={1}
+              value={estimatedMinutes}
+              onChange={(e) => setEstimatedMinutes(e.target.value)}
+              placeholder="Örn: 45"
+              className="bg-background border-border text-text"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none py-1">
+                <input
+                  type="checkbox"
+                  checked={asSubtask}
+                  onChange={(e) => {
+                    setAsSubtask(e.target.checked);
+                    if (!e.target.checked) setParentId("");
+                  }}
+                  className="w-4 h-4 rounded accent-primary"
+                />
+                <CornerDownRight size={12} />
+                Alt görev yap
+              </label>
+              <label
+                className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none py-1"
+                title="Bu görevi başka bir görevle aynı saatte yapacaksan işaretle; saat çakışması uyarısı çıkmaz."
+              >
+                <span>Aynı anda yapılabilir</span>
+                <input
+                  type="checkbox"
+                  checked={parallel}
+                  onChange={(e) => setParallel(e.target.checked)}
+                  className="w-4 h-4 rounded accent-primary"
+                />
+              </label>
+            </div>
+            <div className="flex gap-1.5 min-w-0">
+              <select
+                value={parentId}
+                onChange={(e) => setParentId(e.target.value)}
+                disabled={!asSubtask}
+                className="w-full min-w-0 flex-1 px-2 py-1.5 rounded-lg bg-background border border-border text-xs text-text truncate disabled:opacity-40"
+              >
+                <option value="">Ana görev seç…</option>
+                {allTasks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs text-text-muted block">
+              Tekrar <span className="opacity-60">— bitirince yeni plan</span>
+            </label>
+            <select
+              value={repeat}
+              onChange={(e) => setRepeat(e.target.value as RepeatFrequency | "")}
+              className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+            >
+              <option value="">Tekrar yok</option>
+              {(Object.keys(REPEAT_LABEL) as RepeatFrequency[]).map((f) => (
+                <option key={f} value={f}>
+                  {REPEAT_LABEL[f]}
+                </option>
+              ))}
+            </select>
+            {repeat === "custom" && (
+              <div className="flex flex-wrap gap-1">
+                {WEEKDAY_LABEL.map((label, index) => {
+                  const on = repeatDays.includes(index);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() =>
+                        setRepeatDays((prev) =>
+                          on
+                            ? prev.filter((d) => d !== index)
+                            : [...prev, index],
+                        )
+                      }
+                      className={`px-2 py-1 rounded-lg text-[11px] border transition-colors ${
+                        on
+                          ? "bg-primary text-white border-primary"
+                          : "bg-background border-border text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>

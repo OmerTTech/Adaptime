@@ -9,6 +9,7 @@ import type {
   PreviewState,
   TaskPriority,
   TaskCategory,
+  RepeatFrequency,
 } from "@/types";
 import { isScheduled } from "@/types";
 import { getTodayString, generateId, getRandomColor } from "@/utils";
@@ -68,12 +69,37 @@ export function normalizePersistedRoutine(
   return { ...routine, tasks: routine.tasks.map(withSubtaskIds) };
 }
 
+export interface PendingConflict {
+  firstId: string;
+  firstTitle: string;
+  secondId: string;
+  secondTitle: string;
+}
+
 interface RoutineState {
   currentRoutine: DayRoutine | null;
   preview: PreviewState | null;
   history: DayRoutine[];
   historyLoaded: boolean;
   lastSynced: number | null;
+  /** Yeni eklenen/düzenlenen görev başka bir görevle çakışırsa doldurulur. */
+  pendingConflict: PendingConflict | null;
+}
+
+/** Çakışan ilk açık görevi döndürür (birlikte işaretliler hariç). */
+function firstOverlap(tasks: TaskBlock[], task: TaskBlock): TaskBlock | undefined {
+  if (!isScheduled(task) || task.parallel) return undefined;
+  if (task.status === "completed" || task.status === "skipped") return undefined;
+  return tasks.find(
+    (other) =>
+      other.id !== task.id &&
+      !other.parallel &&
+      isScheduled(other) &&
+      other.status !== "completed" &&
+      other.status !== "skipped" &&
+      task.startTime! < other.endTime! &&
+      other.startTime! < task.endTime!,
+  );
 }
 
 export const loadTodayRoutine = createAsyncThunk(
@@ -156,6 +182,7 @@ const routineSlice = createSlice({
     history: [],
     historyLoaded: false,
     lastSynced: null,
+    pendingConflict: null,
   } as RoutineState,
   reducers: {
     addTask: (
@@ -170,6 +197,11 @@ const routineSlice = createSlice({
         category?: TaskCategory;
         deadline?: number;
         description?: string;
+        parallel?: boolean;
+        repeat?: RepeatFrequency;
+        repeatDays?: number[];
+        /** Verilirse görev yeni satır değil, bu görevin alt görevi olur. */
+        parentId?: string;
       }>,
     ) => {
       startTodayIfStale(state);
@@ -184,7 +216,22 @@ const routineSlice = createSlice({
         category,
         deadline,
         description,
+        parallel,
+        repeat,
+        repeatDays,
+        parentId,
       } = action.payload;
+
+      const parent = parentId
+        ? state.currentRoutine.tasks.find((t) => t.id === parentId)
+        : undefined;
+      if (parent) {
+        parent.subtasks = [
+          ...(parent.subtasks ?? []),
+          { id: generateId(), title, done: false },
+        ];
+        return;
+      }
       const scheduled =
         typeof startTime === "number" &&
         typeof endTime === "number" &&
@@ -210,6 +257,8 @@ const routineSlice = createSlice({
         delayCount: 0,
         ...(deadline ? { deadline } : {}),
         ...(description ? { description } : {}),
+        ...(parallel ? { parallel: true } : {}),
+        ...(repeat ? { repeat, repeatDays } : {}),
       };
       state.currentRoutine.tasks.push(task);
       if (scheduled) {
@@ -223,6 +272,20 @@ const routineSlice = createSlice({
           endTime!,
         );
       }
+
+      // Aynı saate denk gelen başka bir görev varsa kullanıcıya sor.
+      const overlap = firstOverlap(state.currentRoutine.tasks, task);
+      if (overlap) {
+        state.pendingConflict = {
+          firstId: overlap.id,
+          firstTitle: overlap.title,
+          secondId: task.id,
+          secondTitle: task.title,
+        };
+      }
+    },
+    clearPendingConflict: (state) => {
+      state.pendingConflict = null;
     },
     removeTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
@@ -326,6 +389,15 @@ const routineSlice = createSlice({
       );
       if (task) {
         Object.assign(task, action.payload.updates);
+        const overlap = firstOverlap(state.currentRoutine.tasks, task);
+        if (overlap) {
+          state.pendingConflict = {
+            firstId: overlap.id,
+            firstTitle: overlap.title,
+            secondId: task.id,
+            secondTitle: task.title,
+          };
+        }
       }
     },
     startTask: (state, action: PayloadAction<string>) => {
@@ -334,11 +406,48 @@ const routineSlice = createSlice({
       const task = state.currentRoutine.tasks.find(
         (t) => t.id === action.payload,
       );
-      if (task && isScheduled(task)) {
-        task.status = "active";
-        task.pausedAt = undefined;
-        if (!task.startedAt) task.startedAt = Date.now();
+      if (!task) return;
+      // Saati olmayan görev "şimdi" başlar: tahmini süresi kadar planlanır.
+      if (!isScheduled(task)) {
+        const start = Math.floor(Date.now() / 60_000) * 60_000;
+        const minutes = task.estimatedMinutes ?? 30;
+        task.startTime = start;
+        task.endTime = start + minutes * 60_000;
+        task.originalDuration = minutes * 60_000;
+        state.currentRoutine.tasks.sort((a, b) => {
+          if (!isScheduled(a)) return 1;
+          if (!isScheduled(b)) return -1;
+          return a.startTime! - b.startTime!;
+        });
+        state.currentRoutine.dayEndTime = Math.max(
+          state.currentRoutine.dayEndTime,
+          task.endTime!,
+        );
       }
+      // Aynı anda birden çok görev yürüyebilir; diğerleri duraklatılmaz.
+      task.status = "active";
+      task.pausedAt = undefined;
+      if (!task.startedAt) task.startedAt = Date.now();
+    },
+    // Bitiş süresini dakika cinsinden uzat/kısalt (en az 5 dakika kalır).
+    adjustTaskEnd: (
+      state,
+      action: PayloadAction<{ id: string; minutes: number }>,
+    ) => {
+      const routine = state.currentRoutine;
+      if (!routine) return;
+      const task = routine.tasks.find((t) => t.id === action.payload.id);
+      if (!task || !isScheduled(task)) return;
+      const end = Math.max(
+        task.startTime! + 5 * 60_000,
+        task.endTime! + action.payload.minutes * 60_000,
+      );
+      task.endTime = end;
+      task.originalDuration = end - task.startTime!;
+      routine.dayEndTime = Math.max(
+        routine.dayEndTime,
+        ...routine.tasks.filter(isScheduled).map((t) => t.endTime!),
+      );
     },
     adjustStartedAt: (
       state,
@@ -520,6 +629,8 @@ export const detachSubtask = routineSlice.actions.detachSubtask;
 export const moveTaskAsSubtask = routineSlice.actions.moveTaskAsSubtask;
 export const updateTask = routineSlice.actions.updateTask;
 export const startTask = routineSlice.actions.startTask;
+export const adjustTaskEnd = routineSlice.actions.adjustTaskEnd;
+export const clearPendingConflict = routineSlice.actions.clearPendingConflict;
 export const adjustStartedAt = routineSlice.actions.adjustStartedAt;
 export const pauseTask = routineSlice.actions.pauseTask;
 export const resumeTask = routineSlice.actions.resumeTask;

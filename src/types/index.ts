@@ -13,6 +13,23 @@ export type TaskPriority = "critical" | "high" | "medium" | "low";
 
 export type TaskCategory = "work" | "study" | "personal" | "health" | "other";
 
+export type RepeatFrequency =
+  | "hourly"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "custom";
+
+export const REPEAT_LABEL: Record<RepeatFrequency, string> = {
+  hourly: "Her saat",
+  daily: "Her gün",
+  weekly: "Her hafta",
+  monthly: "Her ay",
+  custom: "Seçili günler",
+};
+
+export const WEEKDAY_LABEL = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+
 export interface Subtask {
   id: string;
   title: string;
@@ -45,6 +62,12 @@ export interface TaskBlock {
   notes?: string;
   delayCount?: number;
   reminderEnabled?: boolean;
+  /** Aynı saatte başka bir görevle birlikte yapılıyorsa çakışma uyarısı verilmez. */
+  parallel?: boolean;
+  /** Tamamlanınca bir sonraki tekrarın otomatik oluşturulması. */
+  repeat?: RepeatFrequency;
+  /** "custom" için haftanın günleri (0 = Pazar). */
+  repeatDays?: number[];
   subtasks?: Subtask[];
 }
 
@@ -161,6 +184,8 @@ export interface MentorSettings {
   hours: number[];
   tone: MentorTone;
   snoozeMinutes: number;
+  /** Mentor yanıtlarının üst cümle sınırı (1-20). */
+  maxSentences: number;
   aiEnabled: boolean;
   restUntil: number | null;
   restReason: string | null;

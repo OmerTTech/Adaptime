@@ -9,7 +9,9 @@ import routineRoutes from "./routes/routine.js";
 import aiRoutes from "./routes/ai.js";
 import accountabilityRoutes from "./routes/accountability.js";
 import diaryRoutes from "./routes/diary.js";
+import pushRoutes from "./routes/push.js";
 import { startScheduler } from "./services/accountability.js";
+import { startPushReminders } from "./services/push.js";
 
 const app = express();
 app.use(helmet());
@@ -118,6 +120,7 @@ app.use("/api/routines", routineRoutes);
 app.use("/api/generate-routine", aiRoutes);
 app.use("/api/accountability", accountabilityRoutes);
 app.use("/api/diary", diaryRoutes);
+app.use("/api/push", pushRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -158,3 +161,6 @@ app.listen(PORT, () => {
 
 // Saatlik hesap verebilirlik kontrolleri (sunucu tarafı, idempotent).
 startScheduler();
+
+// Yaklaşan görevler için arka plan bildirimleri (VAPID varsa).
+startPushReminders();

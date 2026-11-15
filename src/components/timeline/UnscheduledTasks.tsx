@@ -4,6 +4,7 @@ import {
   completeTask,
   removeTask,
   updateTask,
+  startTask,
   toggleSubtask,
   detachSubtask,
 } from "@/store/slices/routineSlice";
@@ -14,12 +15,16 @@ import {
   CheckCircle,
   ChevronRight,
   Circle,
+  Crosshair,
   Pencil,
-  Trash2,
+  Play,
   Clock,
   ListTodo,
   Unlink,
 } from "lucide-react";
+import ConfirmDeleteButton from "@/components/ui/ConfirmDeleteButton";
+
+const VISIBLE_LIMIT = 8;
 
 export default function UnscheduledTasks() {
   const dispatch = useAppDispatch();
@@ -27,6 +32,10 @@ export default function UnscheduledTasks() {
     (state) => state.routine.currentRoutine?.tasks ?? [],
   );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [focusId, setFocusId] = useState<string | null>(null);
+  // Uzun listeler performans için parça parça gösterilir (ayardan kapatılabilir).
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
+  const progressive = useAppSelector((s) => s.ui.progressiveLists);
   const unscheduled = tasks.filter(
     (t) => !isScheduled(t) && t.status !== "skipped",
   );
@@ -34,6 +43,12 @@ export default function UnscheduledTasks() {
   if (unscheduled.length === 0) return null;
 
   const pendingCount = unscheduled.filter((t) => t.status !== "completed").length;
+  const focused = unscheduled.find((t) => t.id === focusId) ?? null;
+  const shown = focused
+    ? [focused]
+    : progressive
+      ? unscheduled.slice(0, visibleCount)
+      : unscheduled;
 
   return (
     <div className="p-4 rounded-xl border border-border bg-surface">
@@ -48,8 +63,21 @@ export default function UnscheduledTasks() {
         </span>
       </div>
 
-      <div className="space-y-1.5">
-        {unscheduled.map((task) => {
+      {focused && (
+        <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[11px] text-primary">
+          <Crosshair size={12} className="shrink-0" />
+          <span className="truncate">Odak: {focused.title}</span>
+          <button
+            onClick={() => setFocusId(null)}
+            className="ml-auto shrink-0 hover:underline"
+          >
+            Tümünü göster
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-1">
+        {shown.map((task) => {
           const completed = task.status === "completed";
           const subtasks = task.subtasks ?? [];
           const doneSubtasks = subtasks.filter((s) => s.done).length;
@@ -60,7 +88,7 @@ export default function UnscheduledTasks() {
               key={task.id}
               className="rounded-lg hover:bg-surface-hover/50 transition-colors"
             >
-              <div className="group flex items-center gap-2 px-2 py-1.5">
+              <div className="group flex items-center gap-1.5 px-1 py-1.5">
                 <button
                   onClick={() => {
                     if (completed) {
@@ -75,18 +103,18 @@ export default function UnscheduledTasks() {
                       playSound("taskComplete");
                     }
                   }}
-                  className="shrink-0 cursor-pointer p-0.5"
+                  className="shrink-0 cursor-pointer p-1 -m-0.5"
                   title={completed ? "Geri al" : "Tamamla"}
                 >
                   {completed ? (
                     <CheckCircle
-                      size={18}
+                      size={22}
                       style={{ color: task.color, opacity: 0.9 }}
                     />
                   ) : (
                     <Circle
-                      size={18}
-                      style={{ color: task.color, opacity: 0.6 }}
+                      size={22}
+                      style={{ color: task.color, opacity: 0.75 }}
                     />
                   )}
                 </button>
@@ -104,7 +132,7 @@ export default function UnscheduledTasks() {
                     aria-expanded={isOpen}
                   >
                     <ChevronRight
-                      size={16}
+                      size={18}
                       strokeWidth={2.5}
                       className={`transition-transform duration-300 ${
                         isOpen ? "rotate-90" : ""
@@ -114,12 +142,22 @@ export default function UnscheduledTasks() {
                 )}
 
                 <span
-                  className={`text-sm flex-1 min-w-0 truncate ${
+                  className={`text-sm flex-1 min-w-0 line-clamp-2 leading-snug ${
                     completed ? "line-through text-text-muted/60" : "text-text"
                   }`}
+                  title={task.title}
                 >
                   {task.title}
                 </span>
+
+                {task.parallel && (
+                  <span
+                    className="text-[10px] text-primary shrink-0"
+                    title="Aynı anda başka bir görevle yapılıyor"
+                  >
+                    ∥
+                  </span>
+                )}
 
                 {subtasks.length > 0 && (
                   <span className="text-[10px] tabular-nums text-text-muted shrink-0">
@@ -134,19 +172,43 @@ export default function UnscheduledTasks() {
                 ) : null}
 
                 <button
+                  onClick={() =>
+                    setFocusId(focused?.id === task.id ? null : task.id)
+                  }
+                  className={`p-2 rounded-lg shrink-0 transition-colors ${
+                    focused?.id === task.id
+                      ? "bg-primary text-white"
+                      : "bg-surface-hover/60 text-text-muted hover:text-text"
+                  }`}
+                  title={
+                    focused?.id === task.id
+                      ? "Odağı kapat"
+                      : "Sadece bu görevi göster"
+                  }
+                >
+                  <Crosshair size={16} />
+                </button>
+                {!completed && (
+                  <button
+                    onClick={() => dispatch(startTask(task.id))}
+                    className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0"
+                    title={`Şimdi başla (${task.estimatedMinutes ?? 30} dk)`}
+                  >
+                    <Play size={16} />
+                  </button>
+                )}
+                <button
                   onClick={() => dispatch(openEditModal(task.id))}
-                  className="p-1.5 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-surface-hover text-text-muted transition-all shrink-0"
+                  className="p-2 rounded-lg bg-surface-hover/60 text-text-muted hover:text-text transition-colors shrink-0"
                   title="Düzenle / zaman ver"
                 >
-                  <Pencil size={13} />
+                  <Pencil size={16} />
                 </button>
-                <button
-                  onClick={() => dispatch(removeTask(task.id))}
-                  className="p-1.5 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-surface-hover text-danger transition-all shrink-0"
-                  title="Sil"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => dispatch(removeTask(task.id))}
+                  className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors shrink-0"
+                  size={16}
+                />
               </div>
 
               {subtasks.length > 0 && (
@@ -159,13 +221,13 @@ export default function UnscheduledTasks() {
                 >
                   <div className="overflow-hidden">
                     <ul
-                      className="mb-1.5 ml-9 mr-2 space-y-1 border-l pl-3"
+                      className="mt-1 mb-2.5 ml-8 mr-1 space-y-1 border-l pl-3"
                       style={{ borderColor: task.color + "40" }}
                     >
                       {subtasks.map((sub) => (
                         <li
                           key={sub.id}
-                          className="flex items-start gap-1 group/sub"
+                          className="flex items-start gap-2 group/sub"
                         >
                           <button
                             onClick={() => {
@@ -177,23 +239,23 @@ export default function UnscheduledTasks() {
                               );
                               if (!sub.done) playSound("taskComplete");
                             }}
-                            className="flex flex-1 min-w-0 items-start gap-2 text-left"
+                            className="flex flex-1 min-w-0 items-start gap-2 text-left py-0.5"
                             title={sub.done ? "Geri al" : "Tamamla"}
                           >
                             {sub.done ? (
                               <CheckCircle
-                                size={13}
+                                size={16}
                                 className="mt-0.5 shrink-0"
                                 style={{ color: task.color }}
                               />
                             ) : (
                               <Circle
-                                size={13}
+                                size={16}
                                 className="mt-0.5 shrink-0 text-text-muted/60"
                               />
                             )}
                             <span
-                              className={`flex-1 min-w-0 text-xs leading-snug ${
+                              className={`flex-1 min-w-0 text-[13px] leading-snug ${
                                 sub.done
                                   ? "line-through text-text-muted/60"
                                   : "text-text-muted"
@@ -211,10 +273,10 @@ export default function UnscheduledTasks() {
                                 }),
                               )
                             }
-                            className="mt-0.5 p-1 rounded text-text-muted/60 opacity-70 hover:opacity-100 hover:text-danger hover:bg-danger/10 transition-all shrink-0"
+                            className="mt-0.5 mr-2 p-1.5 rounded-lg bg-surface-hover/50 text-text-muted/70 hover:text-danger hover:bg-danger/10 transition-colors shrink-0"
                             title="Alt görevden çıkar (Yapılacaklar'a taşır)"
                           >
-                            <Unlink size={14} />
+                            <Unlink size={15} />
                           </button>
                         </li>
                       ))}
@@ -226,6 +288,32 @@ export default function UnscheduledTasks() {
           );
         })}
       </div>
+
+      {progressive && !focused && unscheduled.length > visibleCount && (
+        <>
+          <button
+            onClick={() => setVisibleCount((v) => v + 5)}
+            className="mt-2 text-[11px] text-primary hover:underline"
+          >
+            +{Math.min(5, unscheduled.length - visibleCount)} görev daha
+            {unscheduled.length - visibleCount > 5
+              ? ` (${unscheduled.length - visibleCount} kaldı)`
+              : ""}
+          </button>
+          <p className="text-[10px] text-text-muted/70 mt-1">
+            Tümünü birden görmek için Ayarlar → Liste görünümü’nden bu
+            gösterimi kapatabilirsin.
+          </p>
+        </>
+      )}
+      {progressive && !focused && visibleCount > VISIBLE_LIMIT && (
+        <button
+          onClick={() => setVisibleCount(VISIBLE_LIMIT)}
+          className="mt-2 ml-3 text-[11px] text-text-muted hover:text-text"
+        >
+          Daha az göster
+        </button>
+      )}
 
       <p className="text-[10px] text-text-muted/60 mt-2">
         Kalem simgesiyle bu göreve planlı bir saat verebilirsin.

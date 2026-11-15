@@ -1,7 +1,7 @@
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { confirmAction, goBackFromPreview } from "@/store/slices/uiSlice";
 import { applyModifiedTasks } from "@/store/slices/routineSlice";
-import { applyPauseImpact } from "@/engine/timeEngine";
+import { applyPauseImpact, getPlannedDayEnd } from "@/engine/timeEngine";
 import { applyFlowImpact } from "@/engine/flowState";
 import { applyEarlyFinishImpact } from "@/engine/earlyFinish";
 import { formatDuration, formatTime } from "@/utils";
@@ -51,9 +51,10 @@ export default function ImpactPreviewModal() {
   const tasks = useAppSelector(
     (state) => state.routine.currentRoutine?.tasks ?? [],
   );
-  const dayEndTime = useAppSelector(
+  const storedDayEnd = useAppSelector(
     (state) => state.routine.currentRoutine?.dayEndTime ?? 0,
   );
+  const dayEndTime = getPlannedDayEnd(tasks, storedDayEnd);
   const pausedTaskId = useAppSelector((state) => state.ui.pausedTaskId);
 
   if (!isOpen) return null;

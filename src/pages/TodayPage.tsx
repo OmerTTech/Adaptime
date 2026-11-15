@@ -9,8 +9,10 @@ import {
   setStreak,
 } from "@/store/slices/routineSlice";
 import { setActivePage, type PageName } from "@/store/slices/uiSlice";
+import { loadAccountabilityState } from "@/store/slices/mentorSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
+import { useAccountabilityEngine } from "@/hooks/useAccountabilityEngine";
 import OClock from "@/components/clock/OClock";
 import TimelineView from "@/components/timeline/TimelineView";
 import FocusTimer from "@/components/timer/FocusTimer";
@@ -25,10 +27,43 @@ import PauseOptionsModal from "@/components/modals/PauseOptionsModal";
 import FlowStateModal from "@/components/modals/FlowStateModal";
 import EarlyFinishModal from "@/components/modals/EarlyFinishModal";
 import ImpactPreviewModal from "@/components/modals/ImpactPreviewModal";
+import MentorCard from "@/components/accountability/MentorCard";
+import TodayOverview from "@/components/accountability/TodayOverview";
+import DiaryCard from "@/components/accountability/DiaryCard";
+import Avatar from "@/components/ui/Avatar";
 import StatsPage from "@/pages/StatsPage";
 import SettingsPage from "@/pages/SettingsPage";
+import MentorPage from "@/pages/MentorPage";
+import FocusPage from "@/pages/FocusPage";
+import DiaryPage from "@/pages/DiaryPage";
 import { isScheduled } from "@/types";
-import { Calendar, LogOut, Sun, ChartBar, Settings } from "lucide-react";
+import {
+  BookOpen,
+  BrainCircuit,
+  Calendar,
+  ChartBar,
+  LogOut,
+  Settings,
+  Sun,
+  Timer,
+} from "lucide-react";
+
+const NAV: { page: PageName; label: string; icon: typeof Sun }[] = [
+  { page: "today", label: "Bugün", icon: Sun },
+  { page: "mentor", label: "Mentor", icon: BrainCircuit },
+  { page: "focus", label: "Odak", icon: Timer },
+  { page: "diary", label: "Günlük", icon: BookOpen },
+  { page: "stats", label: "Analitik", icon: ChartBar },
+  { page: "settings", label: "Ayarlar", icon: Settings },
+];
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 6) return "İyi geceler";
+  if (hour < 12) return "Günaydın";
+  if (hour < 18) return "İyi günler";
+  return "İyi akşamlar";
+}
 
 export default function TodayPage() {
   const { user, token, logout } = useAuth();
@@ -37,6 +72,8 @@ export default function TodayPage() {
   const page = useAppSelector((state) => state.ui.activePage);
   const routine = useAppSelector((state) => state.routine.currentRoutine);
   const tasks = routine?.tasks ?? [];
+
+  useAccountabilityEngine(token);
 
   // Load routine from backend on login
   useEffect(() => {
@@ -92,7 +129,14 @@ export default function TodayPage() {
     if (!token || !routine) return;
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
     syncTimeout.current = setTimeout(() => {
-      dispatch(saveRoutineToBackend({ routine, token }));
+      dispatch(saveRoutineToBackend({ routine, token }))
+        .unwrap()
+        // Kayıt sunucuya gittikten sonra mentor/analitik özetini hemen tazele;
+        // aksi halde sayaçlar 60 saniyelik yoklamaya kadar eski kalıyor.
+        .then(() => dispatch(loadAccountabilityState(token)))
+        .catch(() => {
+          /* offline: sonraki değişiklikte tekrar denenir */
+        });
     }, 1500);
     return () => {
       if (syncTimeout.current) clearTimeout(syncTimeout.current);
@@ -133,70 +177,34 @@ export default function TodayPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-text">Adaptime</h1>
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted">
-              <Calendar size={12} />
-              <span>{dateStr}</span>
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 shrink-0">
+            <h1 className="text-lg font-bold text-text whitespace-nowrap">Adaptime</h1>
+            <div className="hidden lg:flex items-center gap-1.5 text-xs text-text-muted whitespace-nowrap">
+              <Calendar size={12} className="shrink-0" />
+              <span className="whitespace-nowrap">{dateStr}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="hidden sm:flex items-center gap-1 rounded-xl bg-surface border border-border p-1">
-              <button
-                onClick={() => handlePage("today")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  page === "today"
-                    ? "bg-primary text-white"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                <Sun size={13} />
-                Bugün
-              </button>
-              <button
-                onClick={() => handlePage("stats")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  page === "stats"
-                    ? "bg-primary text-white"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                <ChartBar size={13} />
-                İstatistik
-              </button>
-              <button
-                onClick={() => handlePage("settings")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  page === "settings"
-                    ? "bg-primary text-white"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                <Settings size={13} />
-                Ayarlar
-              </button>
+          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+            <div className="hidden sm:flex items-center gap-1 rounded-xl bg-surface border border-border p-1 shrink-0">
+              {NAV.map(({ page: p, label, icon: Icon }) => (
+                <button
+                  key={p}
+                  onClick={() => handlePage(p)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    page === p
+                      ? "bg-primary text-white"
+                      : "text-text-muted hover:text-text"
+                  }`}
+                >
+                  <Icon size={13} />
+                  {label}
+                </button>
+              ))}
             </div>
-            {page === "today" && (
-              <div className="flex items-center gap-2">
-                <DayEndTimeBadge />
-                <StreakBadge />
-                <ViewToggle />
-              </div>
-            )}
             {user && (
-              <div className="flex items-center gap-2 ml-2">
-                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary overflow-hidden">
-                  {user.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    user.name.charAt(0).toUpperCase()
-                  )}
-                </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Avatar user={user} size={32} />
                 <button
                   onClick={handleLogout}
                   className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text transition-colors"
@@ -209,31 +217,25 @@ export default function TodayPage() {
           </div>
         </div>
         {/* Mobile tab bar */}
-        <div className="sm:hidden max-w-4xl mx-auto px-4 pb-2 flex gap-1">
-          {(
-            [
-              ["today", "Bugün", Sun],
-              ["stats", "İstatistik", ChartBar],
-              ["settings", "Ayarlar", Settings],
-            ] as const
-          ).map(([p, label, Icon]) => (
+        <div className="sm:hidden max-w-4xl mx-auto px-2 pb-2 flex gap-0.5">
+          {NAV.map(({ page: p, label, icon: Icon }) => (
             <button
               key={p}
               onClick={() => handlePage(p)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
                 page === p
                   ? "bg-primary text-white"
                   : "text-text-muted hover:text-text"
               }`}
             >
-              <Icon size={13} />
+              <Icon size={14} />
               {label}
             </button>
           ))}
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-4xl mx-auto px-4 py-6">
         {page === "stats" && (
           <div className="flex justify-center sm:hidden py-2">
             <div className="flex items-center gap-1 rounded-xl bg-surface border border-border p-1">
@@ -245,10 +247,36 @@ export default function TodayPage() {
 
         {page === "today" && (
           <>
-            {hasActiveTask && <FocusTimer />}
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-text-muted">
+                  {greeting()}
+                  {user?.name ? `, ${user.name.split(" ")[0]}` : ""}
+                </p>
+                <h2 className="text-xl font-bold text-text">Bugünün planı</h2>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <DayEndTimeBadge />
+                <StreakBadge />
+                <ViewToggle />
+              </div>
+            </div>
+
+            <TodayOverview />
+
+            <div className="mt-3 grid grid-cols-1 gap-2">
+              <MentorCard />
+              <DiaryCard />
+            </div>
+
+            {hasActiveTask && (
+              <div className="mt-6">
+                <FocusTimer />
+              </div>
+            )}
 
             {viewMode === "oclock" && (
-              <div className={`flex justify-center ${hasActiveTask ? "mt-8" : ""}`}>
+              <div className={`flex justify-center ${hasActiveTask ? "mt-8" : "mt-8"}`}>
                 <OClock />
               </div>
             )}
@@ -261,6 +289,9 @@ export default function TodayPage() {
           </>
         )}
 
+        {page === "mentor" && <MentorPage />}
+        {page === "focus" && <FocusPage />}
+        {page === "diary" && <DiaryPage />}
         {page === "stats" && <StatsPage />}
         {page === "settings" && <SettingsPage />}
       </main>

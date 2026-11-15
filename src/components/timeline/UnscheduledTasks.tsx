@@ -5,6 +5,7 @@ import {
   updateTask,
 } from "@/store/slices/routineSlice";
 import { openEditModal } from "@/store/slices/uiSlice";
+import { playSound } from "@/services/sound";
 import { isScheduled } from "@/types";
 import {
   CheckCircle,
@@ -57,6 +58,7 @@ export default function UnscheduledTasks() {
                     );
                   } else {
                     dispatch(completeTask(task.id));
+                    playSound("taskComplete");
                   }
                 }}
                 className="shrink-0 cursor-pointer"

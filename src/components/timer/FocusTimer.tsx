@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { completeTask, pauseTask, skipTask, adjustStartedAt } from "@/store/slices/routineSlice";
 import { isScheduled, type ScheduledTask } from "@/types";
+import { playSound } from "@/services/sound";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -61,6 +62,7 @@ export default function FocusTimer() {
   const handleComplete = useCallback(() => {
     if (!currentTask) return;
     dispatch(completeTask(currentTask.id));
+    playSound("taskComplete");
   }, [currentTask, dispatch]);
 
   const handleSkip = useCallback(() => {

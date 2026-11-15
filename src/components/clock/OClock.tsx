@@ -41,49 +41,21 @@ function isInRange(a: number, start: number, end: number) {
   return a >= s || a <= e;
 }
 
-function getTextArc(midAngle: number, spread: number) {
+function getTextArc(midAngle: number, left: number, right: number) {
+  const back = midAngle - left;
+  const forth = midAngle + right;
   if (midAngle >= 45 && midAngle < 90) {
-    return {
-      start: midAngle - spread,
-      end: midAngle + spread,
-      sweep: 1,
-      side: "right" as const,
-    };
+    return { start: back, end: forth, sweep: 1, side: "right" as const };
   } else if (midAngle >= 90 && midAngle < 135) {
-    return {
-      start: midAngle + spread,
-      end: midAngle - spread,
-      sweep: 0,
-      side: "right" as const,
-    };
+    return { start: forth, end: back, sweep: 0, side: "right" as const };
   } else if (midAngle >= 135 && midAngle < 225) {
-    return {
-      start: midAngle + spread,
-      end: midAngle - spread,
-      sweep: 0,
-      side: "right" as const,
-    };
+    return { start: forth, end: back, sweep: 0, side: "right" as const };
   } else if (midAngle >= 225 && midAngle < 270) {
-    return {
-      start: midAngle + spread,
-      end: midAngle - spread,
-      sweep: 0,
-      side: "left" as const,
-    };
+    return { start: forth, end: back, sweep: 0, side: "left" as const };
   } else if (midAngle >= 270 && midAngle < 315) {
-    return {
-      start: midAngle - spread,
-      end: midAngle + spread,
-      sweep: 1,
-      side: "left" as const,
-    };
+    return { start: back, end: forth, sweep: 1, side: "left" as const };
   } else {
-    return {
-      start: midAngle - spread,
-      end: midAngle + spread,
-      sweep: 1,
-      side: "left" as const,
-    };
+    return { start: back, end: forth, sweep: 1, side: "left" as const };
   }
 }
 
@@ -101,15 +73,6 @@ function textArcPath(
     sweep === 1 ? (end - start + 360) % 360 : (start - end + 360) % 360;
   const large = diff > 180 ? 1 : 0;
   return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
-}
-
-function calcFontSize(sweepDeg: number) {
-  const minS = 15,
-    maxS = 240,
-    minF = 9,
-    maxF = 18;
-  const t = Math.min(Math.max((sweepDeg - minS) / (maxS - minS), 0), 1);
-  return Math.round((minF + t * (maxF - minF)) * 10) / 10;
 }
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -135,18 +98,44 @@ export default function OClock() {
   const minDeg = m * 6 + sec * 0.1;
   const secDeg = sec * 6;
 
-  const taskRanges = tasks.map((task) => {
-    let a1 = timeToAngle(task.startTime);
+  const ordered = [...tasks].sort((a, b) => a.startTime - b.startTime);
+  const spans = ordered.map((task) => {
+    const a1 = timeToAngle(task.startTime);
     let a2 = timeToAngle(task.endTime);
     if (a2 <= a1) a2 += 360;
+    return { a1, a2 };
+  });
+
+  const taskRanges = ordered.map((task, index) => {
+    const { a1, a2 } = spans[index];
     const sweep = a2 - a1;
     const midAngle = a1 + sweep / 2;
+    // Yazı önce görevin kendi yayına sığar; sığmazsa yalnızca komşularla
+    // paylaşılan boşluğun yarısı kadar taşabilir (komşu yazıyla çakışmaz).
+    const prevEnd = index > 0 ? spans[index - 1].a2 : a1 - TEXT_SPREAD;
+    const nextStart =
+      index < spans.length - 1 ? spans[index + 1].a1 : a2 + TEXT_SPREAD;
+    const gapBefore = Math.max(0, a1 - prevEnd);
+    const gapAfter = Math.max(0, nextStart - a2);
+    const leftHalf = Math.min(TEXT_SPREAD, sweep / 2 + gapBefore / 2);
+    const rightHalf = Math.min(TEXT_SPREAD, sweep / 2 + gapAfter / 2);
+    const textArcDeg = Math.max(0, leftHalf + rightHalf - 2);
     const {
       start,
       end,
       sweep: textSweep,
       side,
-    } = getTextArc(midAngle, TEXT_SPREAD);
+    } = getTextArc(midAngle, leftHalf, rightHalf);
+    const arcLen = (textArcDeg * Math.PI * TEXT_R) / 180;
+    let fontSize = 16;
+    while (fontSize > 8 && task.title.length * 0.58 * fontSize > arcLen) {
+      fontSize -= 0.5;
+    }
+    const maxChars = Math.floor(arcLen / (0.58 * fontSize));
+    const label =
+      task.title.length > maxChars && maxChars > 1
+        ? `${task.title.slice(0, maxChars - 1).trimEnd()}…`
+        : task.title;
     return {
       ...task,
       a1,
@@ -156,6 +145,9 @@ export default function OClock() {
       textEnd: end,
       textSweep,
       textSide: side,
+      fontSize,
+      label,
+      showLabel: maxChars >= 3,
     };
   });
 
@@ -164,8 +156,8 @@ export default function OClock() {
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="relative select-none">
-        <svg width={560} height={560} viewBox="-70 -70 560 560">
+      <div className="relative select-none w-full max-w-[560px]">
+        <svg viewBox="-70 -70 560 560" className="w-full h-auto">
           <defs>
             {taskRanges.map((task) => {
               if (task.status === "skipped") return null;
@@ -298,26 +290,26 @@ export default function OClock() {
           <circle cx={CX} cy={CY} r={3} fill="var(--background)" />
 
           {taskRanges.map((task) => {
-            if (task.status === "skipped") return null;
-            const fontSize = calcFontSize(task.sweep);
+            if (task.status === "skipped" || !task.showLabel) return null;
             return (
               <g key={`txt-${task.id}`}>
                 <text
-                  fontSize={fontSize}
+                  fontSize={task.fontSize}
                   fontWeight="600"
                   fill="var(--text)"
                   style={{
-                    pointerEvents: "none",
+                    pointerEvents: "auto",
                     textShadow: "0 1px 4px rgba(0,0,0,0.9)",
                   }}
                 >
+                  <title>{task.title}</title>
                   <textPath
                     href={`#tp-${task.id}`}
                     startOffset="50%"
                     textAnchor="middle"
                     {...({ side: task.textSide } as any)}
                   >
-                    {task.title}
+                    {task.label}
                   </textPath>
                 </text>
               </g>
@@ -342,7 +334,7 @@ export default function OClock() {
       </div>
 
       {tasks.length > 0 && (
-        <div className="flex flex-wrap justify-center gap-2 max-w-[440px]">
+        <div className="flex flex-wrap justify-center gap-2 max-w-full">
           {tasks.map((task) => (
             <div
               key={task.id}

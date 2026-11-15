@@ -68,3 +68,40 @@ export function timestampToTime(ts: number): string {
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+
+/** "14:30" biçiminde saat (yerel). */
+export function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString("tr-TR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** "12 dk sonra" / "3 sa önce" gibi kısa göreli zaman. */
+export function formatRelative(ts: number, now: number = Date.now()): string {
+  const diff = ts - now;
+  const abs = Math.abs(diff);
+  const minutes = Math.round(abs / 60_000);
+  const label =
+    minutes < 1
+      ? "şimdi"
+      : minutes < 60
+        ? `${minutes} dk`
+        : `${Math.floor(minutes / 60)} sa ${minutes % 60 ? `${minutes % 60} dk` : ""}`.trim();
+  if (label === "şimdi") return label;
+  return diff >= 0 ? `${label} sonra` : `${label} önce`;
+}
+
+/** datetime-local input değeri (yerel saat). */
+export function timestampToDateTimeLocal(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function dateTimeLocalToTimestamp(value: string): number | null {
+  if (!value) return null;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}

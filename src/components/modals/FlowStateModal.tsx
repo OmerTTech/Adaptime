@@ -1,6 +1,7 @@
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { closeFlowModal, setPendingFlowImpact } from "@/store/slices/uiSlice";
 import { calculateFlowImpact } from "@/engine/flowState";
+import { getPlannedDayEnd } from "@/engine/timeEngine";
 import { isScheduled } from "@/types";
 import { Zap, ArrowRight, Scissors, X } from "lucide-react";
 
@@ -33,9 +34,10 @@ export default function FlowStateModal() {
   const tasks = useAppSelector(
     (state) => state.routine.currentRoutine?.tasks ?? [],
   );
-  const dayEndTime = useAppSelector(
+  const storedDayEnd = useAppSelector(
     (state) => state.routine.currentRoutine?.dayEndTime ?? 0,
   );
+  const dayEndTime = getPlannedDayEnd(tasks, storedDayEnd);
 
   if (!isOpen || !flowTaskId) return null;
 

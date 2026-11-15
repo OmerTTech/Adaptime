@@ -8,6 +8,8 @@ import {
   PERSIST,
   PURGE,
   REGISTER,
+  type PersistConfig,
+  type PersistedState,
 } from "redux-persist";
 
 const createNoopStorage = () => ({
@@ -45,19 +47,43 @@ const storage = (() => {
   }
 })();
 
-import routineReducer from "./slices/routineSlice";
+import routineReducer, {
+  normalizePersistedRoutine,
+} from "./slices/routineSlice";
+import type { DayRoutine } from "@/types";
 import uiReducer from "./slices/uiSlice";
+import mentorReducer from "./slices/mentorSlice";
+import focusReducer from "./slices/focusSlice";
+import diaryReducer from "./slices/diarySlice";
 
 const rootReducer = combineReducers({
   routine: routineReducer,
   ui: uiReducer,
+  mentor: mentorReducer,
+  focus: focusReducer,
+  diary: diaryReducer,
 });
 
-const persistConfig = {
+const persistConfig: PersistConfig<ReturnType<typeof rootReducer>> = {
   key: "adaptime-root",
   storage,
-  version: 1,
-  whitelist: ["routine"],
+  version: 3,
+  whitelist: ["routine", "focus"],
+  // Eski sürümlerde alt görevler yalnızca `_id` taşıyordu; istemci `id` bekliyor.
+  migrate: async (state: PersistedState) => {
+    const persisted = state as
+      | { routine?: { currentRoutine?: DayRoutine | null; history?: DayRoutine[] } }
+      | undefined;
+    const routine = persisted?.routine;
+    if (!routine) return state;
+    routine.currentRoutine = normalizePersistedRoutine(
+      routine.currentRoutine ?? null,
+    );
+    routine.history = (routine.history ?? []).map(
+      (day) => normalizePersistedRoutine(day) ?? day,
+    );
+    return state;
+  },
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

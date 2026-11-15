@@ -1,21 +1,9 @@
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.js";
+import { extractJson, generateText, GeminiError } from "../services/gemini.js";
+import { GEMINI_MODEL } from "../config/ai.js";
 
 const router = Router();
-
-const GEMINI_API_KEYS: string[] = (() => {
-  try {
-    const raw = process.env.GEMINI_API_KEYS || "[]";
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((k: unknown) => typeof k === "string" && k.length > 0)
-      : [];
-  } catch {
-    return [];
-  }
-})();
-
-const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 const SYSTEM_PROMPT = `Sen Adaptime rutin asistanısın. Kullanıcı doğal dille günlük planını anlatacak.
 Sen sadece JSON array döndüreceksin. Başka hiçbir metin yazma.
@@ -34,66 +22,61 @@ Kurallar:
   { "title": "İngilizce", "startHHMM": "16:20", "endHHMM": "18:20" }
 ]`;
 
-async function callGemini(key: string, prompt: string) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+interface GeneratedTask {
+  title: string;
+  startHHMM: string;
+  endHHMM: string;
+}
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": key,
-    },
-    body: JSON.stringify({
-      contents: [
-        { parts: [{ text: `${SYSTEM_PROMPT}\n\nKullanıcı: ${prompt}` }] },
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 1024,
-      },
-    }),
-  });
-
-  if (response.status === 429) {
-    return { rateLimited: true as const };
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error("AI geçerli JSON üretemedi");
-  }
-
-  return { tasks: JSON.parse(jsonMatch[0]) };
+function sanitizeTasks(value: unknown): GeneratedTask[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((t): t is Record<string, unknown> => Boolean(t) && typeof t === "object")
+    .map((t) => ({
+      title: String(t.title ?? "").slice(0, 120),
+      startHHMM: String(t.startHHMM ?? ""),
+      endHHMM: String(t.endHHMM ?? ""),
+    }))
+    .filter(
+      (t) =>
+        t.title.length > 0 &&
+        /^\d{1,2}:\d{2}$/.test(t.startHHMM) &&
+        /^\d{1,2}:\d{2}$/.test(t.endHHMM),
+    )
+    .slice(0, 12);
 }
 
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const { prompt } = req.body;
-    if (!prompt) {
+    if (!prompt || typeof prompt !== "string") {
       return res.status(400).json({ error: "Prompt gerekli" });
     }
 
-    if (GEMINI_API_KEYS.length === 0) {
-      const demoTasks = parseDemoPrompt(prompt);
-      return res.json({ tasks: demoTasks });
-    }
+    try {
+      const text = await generateText({
+        prompt: `${SYSTEM_PROMPT}\n\nKullanıcı: ${prompt.slice(0, 1200)}`,
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+      });
 
-    for (const key of GEMINI_API_KEYS) {
-      const result = await callGemini(key, prompt);
-      if (result.rateLimited) {
-        console.warn(`API key rate limited, switching to next key...`);
-        continue;
+      const parsed = extractJson<unknown>(text);
+      const tasks = sanitizeTasks(parsed);
+      if (tasks.length === 0) {
+        throw new Error("AI geçerli bir plan üretemedi");
       }
-      return res.json(result);
-    }
 
-    console.error("All API keys exhausted or rate limited");
-    return res
-      .status(500)
-      .json({ error: "Tüm API anahtarları kota limitine ulaştı" });
+      return res.json({ tasks, source: "ai", model: GEMINI_MODEL });
+    } catch (aiError) {
+      if (aiError instanceof GeminiError && aiError.code === "no_keys") {
+        return res.json({ tasks: parseDemoPrompt(prompt), source: "demo" });
+      }
+      console.warn(
+        "AI rutin üretimi başarısız, yerel plana düşülüyor:",
+        aiError instanceof Error ? aiError.message : aiError,
+      );
+      return res.json({ tasks: parseDemoPrompt(prompt), source: "fallback" });
+    }
   } catch (error) {
     console.error("AI Error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
@@ -101,8 +84,7 @@ router.post("/", authMiddleware, async (req, res) => {
 });
 
 function parseDemoPrompt(prompt: string) {
-  const tasks: Array<{ title: string; startHHMM: string; endHHMM: string }> =
-    [];
+  const tasks: GeneratedTask[] = [];
 
   const timeRanges = prompt.match(
     /(\d{1,2})[:\s](\d{2})\s*[-–]\s*(\d{1,2})[:\s](\d{2})/g,

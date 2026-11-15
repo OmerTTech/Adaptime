@@ -5,6 +5,7 @@ import {
   setPendingEarlyFinishImpact,
 } from "@/store/slices/uiSlice";
 import { calculateEarlyFinishImpact } from "@/engine/earlyFinish";
+import { getPlannedDayEnd } from "@/engine/timeEngine";
 import { isScheduled } from "@/types";
 import { TimerOff, Coffee, ArrowRight, X } from "lucide-react";
 
@@ -17,9 +18,10 @@ export default function EarlyFinishModal() {
   const tasks = useAppSelector(
     (state) => state.routine.currentRoutine?.tasks ?? [],
   );
-  const dayEndTime = useAppSelector(
+  const storedDayEnd = useAppSelector(
     (state) => state.routine.currentRoutine?.dayEndTime ?? 0,
   );
+  const dayEndTime = getPlannedDayEnd(tasks, storedDayEnd);
 
   const task = tasks.find((t) => t.id === earlyFinishTaskId);
 

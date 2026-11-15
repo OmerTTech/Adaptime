@@ -16,6 +16,12 @@ dist-ssr
 .env
 .env.local
 
+# Local backups
+backups/
+
+# QA screenshots
+screenshot-*.png
+
 # Internal docs
 TODO.md
 

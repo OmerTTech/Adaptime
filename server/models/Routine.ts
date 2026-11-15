@@ -1,9 +1,24 @@
 import mongoose, { Schema, type Document } from "mongoose";
 
-export interface ITaskBlock {
+export type TaskPriority = "critical" | "high" | "medium" | "low";
+export type TaskCategory = "work" | "study" | "personal" | "health" | "other";
+
+export interface ISubtask {
+  _id?: unknown;
   title: string;
+  done: boolean;
+  doneAt?: number;
+}
+
+export interface ITaskBlock {
+  _id?: unknown;
+  title: string;
+  description?: string;
+  priority?: TaskPriority;
+  category?: TaskCategory;
   startTime?: number;
   endTime?: number;
+  deadline?: number;
   originalDuration?: number;
   estimatedMinutes?: number;
   color: string;
@@ -12,6 +27,13 @@ export interface ITaskBlock {
   pausedAt?: number;
   pausedDuration: number;
   flowExtensions: number;
+  createdAtClient?: number;
+  completedAt?: number;
+  progress?: number;
+  firstAction?: string;
+  notes?: string;
+  delayCount?: number;
+  subtasks?: ISubtask[];
 }
 
 export interface IRoutine extends Document {
@@ -24,11 +46,32 @@ export interface IRoutine extends Document {
   updatedAt: Date;
 }
 
+const subtaskSchema = new Schema<ISubtask>(
+  {
+    title: { type: String, required: true },
+    done: { type: Boolean, default: false },
+    doneAt: { type: Number },
+  },
+  { _id: true },
+);
+
 const taskBlockSchema = new Schema<ITaskBlock>(
   {
     title: { type: String, required: true },
+    description: { type: String },
+    priority: {
+      type: String,
+      enum: ["critical", "high", "medium", "low"],
+      default: "medium",
+    },
+    category: {
+      type: String,
+      enum: ["work", "study", "personal", "health", "other"],
+      default: "work",
+    },
     startTime: { type: Number },
     endTime: { type: Number },
+    deadline: { type: Number },
     originalDuration: { type: Number },
     estimatedMinutes: { type: Number },
     color: { type: String, default: "#6366f1" },
@@ -41,6 +84,13 @@ const taskBlockSchema = new Schema<ITaskBlock>(
     pausedAt: { type: Number },
     pausedDuration: { type: Number, default: 0 },
     flowExtensions: { type: Number, default: 0 },
+    createdAtClient: { type: Number },
+    completedAt: { type: Number },
+    progress: { type: Number, default: 0, min: 0, max: 100 },
+    firstAction: { type: String },
+    notes: { type: String },
+    delayCount: { type: Number, default: 0 },
+    subtasks: { type: [subtaskSchema], default: [] },
   },
   { _id: true },
 );

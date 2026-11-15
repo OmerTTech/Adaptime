@@ -8,7 +8,7 @@ export default function AddRoutineFAB() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-50">
       {isOpen && (
         <div className="absolute bottom-16 right-0 space-y-2 animate-in fade-in slide-in-from-bottom-2">
           <button

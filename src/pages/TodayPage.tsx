@@ -235,7 +235,7 @@ export default function TodayPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6">
+      <main className="max-w-4xl mx-auto px-4 pt-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-10">
         {page === "stats" && (
           <div className="flex justify-center sm:hidden py-2">
             <div className="flex items-center gap-1 rounded-xl bg-surface border border-border p-1">

@@ -136,7 +136,8 @@ export default function TimelineView() {
             : 0;
         const subtasks = task.subtasks ?? [];
         const doneSubtasks = subtasks.filter((s) => s.done).length;
-        const isOpen = !!expanded[task.id];
+        // Alt görevler varsayılan olarak açık; kullanıcı kapatırsa kapalı kalır.
+        const isOpen = expanded[task.id] !== false;
 
         return (
           <div
@@ -185,7 +186,8 @@ export default function TimelineView() {
                     onClick={() =>
                       setExpanded((prev) => ({
                         ...prev,
-                        [task.id]: !prev[task.id],
+                        // Kapalıysa aç, açıksa kapat (varsayılan: açık)
+                        [task.id]: prev[task.id] === false,
                       }))
                     }
                     className="-ml-1.5 p-1 rounded-md bg-surface-hover/60 text-text-muted hover:text-primary hover:bg-surface-hover transition-colors shrink-0"

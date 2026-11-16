@@ -7,6 +7,7 @@ const webpush =
   webpushModule;
 import type mongoose from "mongoose";
 import { PushSubscription } from "../models/PushSubscription.js";
+import { MentorSettings } from "../models/Accountability.js";
 import { Routine } from "../models/Routine.js";
 import { User } from "../models/User.js";
 import { dateKeyInTz } from "./time.js";
@@ -126,6 +127,51 @@ export function startPushReminders() {
             tag: key,
             url: "/",
           });
+        }
+
+        // Saatlik mentor kontrolü: seçili saatlerin ilk 10 dakikasında,
+        // o saatte hâlâ bekleyen iş varsa telefonu dürt.
+        const localHour = Number(
+          new Intl.DateTimeFormat("en-US", {
+            hour: "2-digit",
+            hour12: false,
+            timeZone: tz,
+          }).format(new Date()),
+        );
+        const localMinute = Number(
+          new Intl.DateTimeFormat("en-US", {
+            minute: "2-digit",
+            timeZone: tz,
+          }).format(new Date()),
+        );
+        const settings = await MentorSettings.findOne({
+          userId: user._id,
+        }).select("enabled hours");
+
+        if (
+          settings?.enabled &&
+          settings.hours?.includes(localHour) &&
+          localMinute < 10
+        ) {
+          const open = routine.tasks.filter(
+            (t) => t.status !== "completed" && t.status !== "skipped",
+          );
+          if (open.length > 0) {
+            const mentorKey = `${String(user._id)}:mentor:${dateKey}:${localHour}`;
+            if (!alreadyNotified.has(mentorKey)) {
+              rememberKey(mentorKey);
+              const head = open[0];
+              await sendPushToUser(String(user._id), {
+                title: "Mentor kontrolü",
+                body:
+                  open.length === 1
+                    ? `Sırada “${head.title}” var. Başladın mı?`
+                    : `${open.length} açık görev var, sıradaki “${head.title}”. Ne durumdasın?`,
+                tag: mentorKey,
+                url: "/",
+              });
+            }
+          }
         }
       }
     } catch (error) {

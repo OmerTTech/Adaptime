@@ -330,56 +330,152 @@ export async function generateFirstSteps(
   }
 }
 
+/**
+ * Açıklamadan alt görev çıkarır.
+ * Açıklama madde madde ya da düz cümle olabilir; AI yoksa kurallı bölme.
+ */
+export async function generateSubtasks(
+  title: string,
+  description?: string | null,
+): Promise<{ items: string[]; source: "ai" | "fallback" }> {
+  const text = (description ?? "").trim();
+
+  const fallback = (): string[] => {
+    const cleaned = text
+      .replace(/\r/g, "")
+      .replace(/^\s*(?:[-*•·]|\d+[.)\-])\s*/gm, "\n")
+      .split(/\n|;|\u2022/g)
+      .map((s) => s.replace(/^\s*(?:[-*•·]|\d+[.)\-])\s*/, "").trim())
+      .filter((s) => s.length >= 3 && s.length <= 120);
+    const unique = Array.from(new Set(cleaned)).slice(0, 8);
+    if (unique.length >= 2) return unique;
+    return [
+      `"${title}" için gereken malzemeyi hazırla.`,
+      `İlk somut parçayı tamamla.`,
+      `Kalanı bitir ve kontrol et.`,
+    ];
+  };
+
+  try {
+    const response = await generateText({
+      prompt:
+        `Görev: "${title}"\nAçıklama: "${text || "(yok)"}"\n` +
+        `Bu görevi yapmak için gereken alt görevleri çıkar. En az 2, en fazla 8 madde. ` +
+        `Her madde somut, emir kipi ve en fazla 10 kelime olsun; açıklamada geçen saat/ders/parça bilgilerini koru. ` +
+        `Sadece JSON array döndür: ["alt görev1","alt görev2", ...]`,
+      system:
+        "Sen pratik bir planlama asistanısın. Görevleri yapılabilir alt adımlara bölersin. Sadece JSON döndür.",
+      temperature: 0.3,
+      maxOutputTokens: 320,
+    });
+    const parsed = extractJson<unknown>(response);
+    if (Array.isArray(parsed)) {
+      const items = parsed
+        .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+        .map((s) => s.trim().slice(0, 120))
+        .slice(0, 10);
+      if (items.length > 0) return { items, source: "ai" };
+    }
+    return { items: fallback(), source: "fallback" };
+  } catch {
+    return { items: fallback(), source: "fallback" };
+  }
+}
+
+export interface DailyLaunchItem {
+  title: string;
+  firstStep: string;
+  doneCriteria: string;
+}
+
 export interface DailyLaunchResult {
   date: string;
   topTaskTitle: string;
   firstStep: string;
   doneCriteria: string;
   source: "ai" | "fallback";
+  count: number;
+  items: DailyLaunchItem[];
 }
 
-/** Günün en önemli görevi + ilk adım + tamamlanma ölçütü. */
+const LAUNCH_COUNTS = [3, 5, 10];
+
+function pendingTasks(ctx: MentorContext): MentorTask[] {
+  const pending = ctx.tasks.filter(
+    (t) => t.status === "pending" || t.status === "active" || t.status === "paused",
+  );
+  return [...pending].sort((a, b) => {
+    const da = a.deadline ?? a.endTime ?? Number.MAX_SAFE_INTEGER;
+    const db = b.deadline ?? b.endTime ?? Number.MAX_SAFE_INTEGER;
+    return da - db;
+  });
+}
+
+function fallbackItem(task: MentorTask): DailyLaunchItem {
+  return {
+    title: task.title,
+    firstStep: task.firstAction
+      ? task.firstAction
+      : `"${task.title}" için ilk 5 dakikayı ayır ve en küçük parçayı bitir.`,
+    doneCriteria: `"${task.title}" tamamlandığında ortaya çıkan somut çıktı hazır olmalı.`,
+  };
+}
+
+/** Günün öncelikli görevleri + her biri için ilk adım ve tamamlanma ölçütü. */
 export async function generateDailyLaunch(
   ctx: MentorContext,
   dateKey: string,
+  requestedCount = 3,
 ): Promise<DailyLaunchResult> {
-  const top = firstPending(ctx);
-  const fallback: DailyLaunchResult = {
-    date: dateKey,
-    topTaskTitle: top?.title ?? "Bugünün en önemli işi",
-    firstStep: top?.firstAction
-      ? top.firstAction
-      : top
-        ? `"${top.title}" için ilk 5 dakikayı ayır ve en küçük parçayı bitir.`
-        : "Bugün için tek bir görev seç ve 5 dakika başla.",
-    doneCriteria: top
-      ? `"${top.title}" tamamlandığında ortaya çıkan somut çıktı hazır olmalı.`
-      : "Somut bir çıktı üretilmiş olmalı.",
-    source: "fallback",
-  };
+  const count = LAUNCH_COUNTS.includes(requestedCount) ? requestedCount : 3;
+  const picks = pendingTasks(ctx).slice(0, count);
 
-  if (!top) return fallback;
+  const fallbackItems: DailyLaunchItem[] =
+    picks.length > 0
+      ? picks.map(fallbackItem)
+      : [
+          {
+            title: "Bugünün en önemli işi",
+            firstStep: "Bugün için tek bir görev seç ve 5 dakika başla.",
+            doneCriteria: "Somut bir çıktı üretilmiş olmalı.",
+          },
+        ];
+
+  const build = (
+    items: DailyLaunchItem[],
+    source: "ai" | "fallback",
+  ): DailyLaunchResult => ({
+    date: dateKey,
+    topTaskTitle: items[0]?.title ?? "Bugünün en önemli işi",
+    firstStep: items[0]?.firstStep ?? "İlk 5 dakikayı ayır.",
+    doneCriteria: items[0]?.doneCriteria ?? "Somut bir çıktı üretilmiş olmalı.",
+    source,
+    count,
+    items,
+  });
+
+  if (picks.length === 0) return build(fallbackItems, "fallback");
 
   try {
     const text = await generateText({
-      prompt: `Bağlam (JSON):\n${JSON.stringify(contextPayload(ctx))}\n\nBugünün en önemli görevini seç ve şu JSON'u döndür:\n{"topTaskTitle":"...","firstStep":"ilk 5 dakikada yapılacak tek şey","doneCriteria":"tamamlanma ölçütü"}\nKısa tut. Sadece JSON.`,
+      prompt: `Bağlam (JSON):\n${JSON.stringify(contextPayload(ctx))}\n\nBugünün öncelikli ${count} görevini seç (en fazla ${count}, daha az görev varsa hepsi) ve şu JSON'u döndür:\n{"items":[{"title":"görev adı","firstStep":"ilk 5 dakikada yapılacak tek şey","doneCriteria":"tamamlanma ölçütü"}]}\nKısa tut, her alan tek cümle. Sadece JSON.`,
       system:
         "Sen Adaptime mentorüsün. Gerçekçi, kısa ve uygulanabilir plan yaparsın. Sadece JSON döndür.",
       temperature: 0.4,
-      maxOutputTokens: 260,
+      maxOutputTokens: 160 + count * 90,
     });
-    const parsed = extractJson<Partial<DailyLaunchResult>>(text);
-    if (parsed?.topTaskTitle && parsed.firstStep && parsed.doneCriteria) {
-      return {
-        date: dateKey,
-        topTaskTitle: String(parsed.topTaskTitle).slice(0, 120),
-        firstStep: String(parsed.firstStep).slice(0, 200),
-        doneCriteria: String(parsed.doneCriteria).slice(0, 200),
-        source: "ai",
-      };
-    }
-    return fallback;
+    const parsed = extractJson<{ items?: Partial<DailyLaunchItem>[] }>(text);
+    const items = (parsed?.items ?? [])
+      .filter((i) => i?.title)
+      .slice(0, count)
+      .map((i) => ({
+        title: String(i.title).slice(0, 120),
+        firstStep: String(i.firstStep ?? "İlk 5 dakikayı ayır.").slice(0, 200),
+        doneCriteria: String(i.doneCriteria ?? "Somut çıktı hazır olmalı.").slice(0, 200),
+      }));
+    if (items.length > 0) return build(items, "ai");
+    return build(fallbackItems, "fallback");
   } catch {
-    return fallback;
+    return build(fallbackItems, "fallback");
   }
 }

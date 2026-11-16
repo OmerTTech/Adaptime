@@ -9,6 +9,7 @@ import {
   SkipForward,
   Clock,
   Pencil,
+  Copy,
   ChevronRight,
   Crosshair,
   Circle,
@@ -20,6 +21,7 @@ import {
   completeTask,
   skipTask,
   updateTask,
+  duplicateTask,
   removeTask,
   adjustTaskEnd,
   toggleSubtask,
@@ -39,7 +41,13 @@ export default function TimelineView() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
 
-  const scheduledTasks = tasks.filter(isScheduled);
+  // Tamamlanan planlı görevler listenin en altına iner; kalanlar saat sırasında.
+  const scheduledTasks = tasks.filter(isScheduled).sort((a, b) => {
+    const doneA = a.status === "completed" ? 1 : 0;
+    const doneB = b.status === "completed" ? 1 : 0;
+    if (doneA !== doneB) return doneA - doneB;
+    return a.startTime! - b.startTime!;
+  });
   const hasUnscheduled = tasks.some((t) => !isScheduled(t));
   const focusedTask = scheduledTasks.find((t) => t.id === focusId) ?? null;
   const visibleTasks = focusedTask ? [focusedTask] : scheduledTasks;
@@ -237,6 +245,13 @@ export default function TimelineView() {
                 <span className="text-xs text-text-muted">
                   {formatDuration(duration)}
                 </span>
+                <button
+                  onClick={() => dispatch(duplicateTask(task.id))}
+                  className="p-1 rounded-md bg-surface-hover text-text-muted hover:text-text transition-colors shrink-0"
+                  title="Kopyala (kopya yapılacaklara eklenir, kalemle düzenle)"
+                >
+                  <Copy size={13} />
+                </button>
                 {(task.status === "active" || task.status === "paused") && (
                   <div className="flex items-center gap-1 ml-auto shrink-0">
                     <button

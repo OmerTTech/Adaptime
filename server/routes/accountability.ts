@@ -17,6 +17,7 @@ import {
 import {
   generateDailyLaunch,
   generateFirstSteps,
+  generateSubtasks,
   type MentorAction,
 } from "../services/mentor.js";
 import { ActivityLog, MentorCheck } from "../models/Accountability.js";
@@ -265,16 +266,22 @@ router.get("/daily-launch", authMiddleware, async (req: AuthRequest, res) => {
     const force =
       req.query.refresh === "1" || req.query.refresh === "true";
 
+    // Kaç maddelik başlangıç: 3 / 5 / 10.
+    const requested = Number(req.query.count);
+    const count = [3, 5, 10].includes(requested) ? requested : 3;
+
     const ctx = await buildContext(userId, settings, dateKey);
     const cached = settings.dailyLaunch;
 
     if (!force && cached?.date === dateKey) {
       // Plan boşken üretilmiş genel metin, sonradan görev eklendiyse yenilenir.
       const staleGeneric = cached.source === "fallback" && ctx.plannedCount > 0;
-      if (!staleGeneric) return res.json({ launch: cached });
+      // Madde sayısı değiştiyse önbellek geçersiz.
+      const countChanged = (cached.count ?? 3) !== count;
+      if (!staleGeneric && !countChanged) return res.json({ launch: cached });
     }
 
-    const launch = await generateDailyLaunch(ctx, dateKey);
+    const launch = await generateDailyLaunch(ctx, dateKey, count);
 
     settings.dailyLaunch = launch;
     await settings.save();
@@ -338,6 +345,28 @@ router.post("/first-steps", authMiddleware, async (req: AuthRequest, res) => {
   } catch (error) {
     console.error("First steps error:", error);
     res.status(500).json({ error: "Adımlar oluşturulamadı" });
+  }
+});
+
+/* -------------------------- alt görevler ------------------------- */
+
+// Görev başlığı + açıklamasından alt görev listesi çıkarır.
+router.post("/subtasks", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    const description =
+      typeof req.body?.description === "string" ? req.body.description : "";
+    if (!title && !description.trim()) {
+      return res.status(400).json({ error: "Başlık veya açıklama gerekli" });
+    }
+    const result = await generateSubtasks(
+      title || "Görev",
+      description.slice(0, 2000),
+    );
+    res.json(result);
+  } catch (error) {
+    console.error("Subtasks error:", error);
+    res.status(500).json({ error: "Alt görevler oluşturulamadı" });
   }
 });
 

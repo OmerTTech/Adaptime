@@ -6,20 +6,22 @@ import { formatDuration } from "@/utils";
 import { isScheduled, type TaskBlock } from "@/types";
 import { ArrowRight, Scissors, Scale, X } from "lucide-react";
 
+// Önerilen sıra: Kes (kaybedilen süreyi plandan düş, gün aynı saatte bitsin),
+// sonra Kaydır, sonra Dengele.
 const OPTIONS = [
-  {
-    mode: "shift" as const,
-    label: "Kaydır",
-    sublabel: "Herşeyi ileri al",
-    icon: ArrowRight,
-    color: "#6366f1",
-  },
   {
     mode: "cut" as const,
     label: "Kes",
     sublabel: "Süreden düş, değiştirme",
     icon: Scissors,
     color: "#ef4444",
+  },
+  {
+    mode: "shift" as const,
+    label: "Kaydır",
+    sublabel: "Herşeyi ileri al",
+    icon: ArrowRight,
+    color: "#6366f1",
   },
   {
     mode: "balance" as const,

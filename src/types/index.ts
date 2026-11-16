@@ -5,7 +5,7 @@ export type ViewMode = "oclock" | "timeline";
 
 export type PauseMode = "shift" | "cut" | "balance";
 
-export type FlowMode = "shift" | "eatNext";
+export type FlowMode = "shift" | "eatNext" | "balance";
 
 export type EarlyFinishMode = "extendBreak" | "pullForward";
 
@@ -299,12 +299,22 @@ export interface AiStatus {
   keys: AiKeyStatus[];
 }
 
+export interface DailyLaunchItem {
+  title: string;
+  firstStep: string;
+  doneCriteria: string;
+}
+
 export interface DailyLaunch {
   date: string;
   topTaskTitle: string;
   firstStep: string;
   doneCriteria: string;
   source: "ai" | "fallback";
+  /** Kaç maddelik başlangıç istendiği (3/5/10). */
+  count?: number;
+  /** Maddeler; eski kayıtlarda yoksa tek görev alanları kullanılır. */
+  items?: DailyLaunchItem[];
 }
 
 /* ------------------------------------------------------------------ */

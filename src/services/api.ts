@@ -254,6 +254,13 @@ export const routineApi = {
       { method: "POST", body: { taskId, patch }, token },
     ),
 
+  taskDuplicate: (date: string, taskId: string, token: string) =>
+    apiFetch<{ ok: boolean }>(`/api/routines/${date}/task-duplicate`, {
+      method: "POST",
+      body: { taskId },
+      token,
+    }),
+
   taskDelete: (date: string, taskId: string, token: string) =>
     apiFetch<{ ok: boolean }>(`/api/routines/${date}/task-delete`, {
       method: "POST",
@@ -388,11 +395,23 @@ export const accountabilityApi = {
       token,
     }),
 
-  dailyLaunch: (token: string, refresh = false) =>
-    apiFetch<{ launch: import("@/types").DailyLaunch }>(
-      `/api/accountability/daily-launch${refresh ? "?refresh=1" : ""}`,
-      { token },
+  subtasks: (
+    data: { title: string; description: string },
+    token: string,
+  ) =>
+    apiFetch<{ items: string[]; source: "ai" | "fallback" }>(
+      "/api/accountability/subtasks",
+      { method: "POST", body: data, token },
     ),
+
+  dailyLaunch: (token: string, refresh = false, count = 3) => {
+    const params = new URLSearchParams({ count: String(count) });
+    if (refresh) params.set("refresh", "1");
+    return apiFetch<{ launch: import("@/types").DailyLaunch }>(
+      `/api/accountability/daily-launch?${params.toString()}`,
+      { token },
+    );
+  },
 
   firstSteps: (
     data: {

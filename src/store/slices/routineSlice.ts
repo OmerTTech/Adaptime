@@ -202,6 +202,8 @@ const routineSlice = createSlice({
         repeatDays?: number[];
         /** Verilirse görev yeni satır değil, bu görevin alt görevi olur. */
         parentId?: string;
+        /** Hazır alt görev başlıkları. */
+        subtasks?: string[];
       }>,
     ) => {
       startTodayIfStale(state);
@@ -259,6 +261,15 @@ const routineSlice = createSlice({
         ...(description ? { description } : {}),
         ...(parallel ? { parallel: true } : {}),
         ...(repeat ? { repeat, repeatDays } : {}),
+        ...(action.payload.subtasks && action.payload.subtasks.length > 0
+          ? {
+              subtasks: action.payload.subtasks.map((sub) => ({
+                id: generateId(),
+                title: sub,
+                done: false,
+              })),
+            }
+          : {}),
       };
       state.currentRoutine.tasks.push(task);
       if (scheduled) {
@@ -286,6 +297,42 @@ const routineSlice = createSlice({
     },
     clearPendingConflict: (state) => {
       state.pendingConflict = null;
+    },
+    // Görevi kopyala: kopya yapılacaklar listesine düşer, kalemle düzenlenebilir.
+    duplicateTask: (state, action: PayloadAction<string>) => {
+      startTodayIfStale(state);
+      const routine = state.currentRoutine;
+      if (!routine) return;
+      const task = routine.tasks.find((t) => t.id === action.payload);
+      if (!task) return;
+      const minutes =
+        task.startTime && task.endTime
+          ? Math.max(5, Math.round((task.endTime - task.startTime) / 60_000))
+          : (task.estimatedMinutes ?? 30);
+      const copy: TaskBlock = {
+        ...task,
+        id: generateId(),
+        title: `${task.title} (kopya)`,
+        status: "pending",
+        pausedDuration: 0,
+        flowExtensions: 0,
+        progress: 0,
+        delayCount: 0,
+        estimatedMinutes: minutes,
+        createdAtClient: Date.now(),
+        subtasks: (task.subtasks ?? []).map((s) => ({
+          id: generateId(),
+          title: s.title,
+          done: false,
+        })),
+      };
+      delete copy.startTime;
+      delete copy.endTime;
+      delete copy.originalDuration;
+      delete copy.startedAt;
+      delete copy.pausedAt;
+      delete copy.completedAt;
+      routine.tasks.push(copy);
     },
     removeTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
@@ -551,6 +598,40 @@ const routineSlice = createSlice({
         state.currentRoutine.dayEndTime,
       );
     },
+    // Planı kaldır: görev yapılacaklar listesine döner (saatleri silinir).
+    unscheduleTask: (
+      state,
+      action: PayloadAction<{ id: string; estimatedMinutes?: number }>,
+    ) => {
+      startTodayIfStale(state);
+      const routine = state.currentRoutine;
+      if (!routine) return;
+      const task = routine.tasks.find((t) => t.id === action.payload.id);
+      if (!task) return;
+      const minutes =
+        action.payload.estimatedMinutes ??
+        task.estimatedMinutes ??
+        Math.max(
+          5,
+          Math.round(
+            ((task.endTime ?? 0) - (task.startTime ?? 0)) / 60_000,
+          ) || 30,
+        );
+      delete task.startTime;
+      delete task.endTime;
+      delete task.originalDuration;
+      delete task.startedAt;
+      delete task.pausedAt;
+      task.pausedDuration = 0;
+      task.estimatedMinutes = minutes;
+      if (task.status === "active" || task.status === "paused") {
+        task.status = "pending";
+      }
+      routine.dayEndTime = getPlannedDayEnd(
+        routine.tasks,
+        routine.tasks.filter(isScheduled).length > 0 ? routine.dayEndTime : 0,
+      );
+    },
     scheduleTask: (
       state,
       action: PayloadAction<{ id: string; startTime: number; endTime: number }>,
@@ -622,6 +703,7 @@ const routineSlice = createSlice({
 });
 
 export const addTask = routineSlice.actions.addTask;
+export const duplicateTask = routineSlice.actions.duplicateTask;
 export const removeTask = routineSlice.actions.removeTask;
 export const addSubtasks = routineSlice.actions.addSubtasks;
 export const toggleSubtask = routineSlice.actions.toggleSubtask;
@@ -641,6 +723,7 @@ export const setPreview = routineSlice.actions.setPreview;
 export const clearPreview = routineSlice.actions.clearPreview;
 export const recalcDayEndTime = routineSlice.actions.recalcDayEndTime;
 export const migrateDates = routineSlice.actions.migrateDates;
+export const unscheduleTask = routineSlice.actions.unscheduleTask;
 export const scheduleTask = routineSlice.actions.scheduleTask;
 export const resetDay = routineSlice.actions.resetDay;
 export const abandonDay = routineSlice.actions.abandonDay;

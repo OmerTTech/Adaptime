@@ -40,13 +40,15 @@ export default function StatsPage() {
   const [fresh, setFresh] = useState<MidValue[]>([]);
   const [deep, setDeep] = useState<MidValue[]>([]);
 
+  // Sayfaya her girişte tazele: aksi halde bugünkü değişiklikler grafiklere
+  // yansımıyor (geçmiş yalnızca ilk açılışta yükleniyordu).
   useEffect(() => {
-    if (!token || historyLoaded) return;
-    setLoading(true);
+    if (!token) return;
+    if (!historyLoaded) setLoading(true);
     dispatch(loadRoutineHistory({ token, limit: 30 }))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [token, historyLoaded, dispatch]);
+  }, [token, dispatch, historyLoaded]);
 
   const build = (days: number): MidValue[] => {
     const out: MidValue[] = [];
@@ -54,8 +56,14 @@ export default function StatsPage() {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const r = history.find((h) => h.date === date);
-      const tasks = r?.tasks ?? [];
+      // Bugünün canlı planı sunucudaki anlık görüntüden önce gelir.
+      const r =
+        currentRoutine && currentRoutine.date === date
+          ? currentRoutine
+          : history.find((h) => h.date === date);
+      const all = r?.tasks ?? [];
+      // Pas geçilenler ne tamamlandı ne de planlanmış sayılır.
+      const tasks = all.filter((t) => t.status !== "skipped");
       const completed = tasks.filter((t) => t.status === "completed").length;
       const focusMinutes = tasks.reduce((acc, t) => {
         if (t.status !== "completed") return acc;
@@ -79,19 +87,23 @@ export default function StatsPage() {
 
   const accuracy = estimateAccuracy(history);
 
-  const scheduledToday = (currentRoutine?.tasks ?? []).filter(isScheduled);
-  const doneToday = scheduledToday.filter((t) => t.status === "completed").length;
+  // Bugünkü ilerleme, saatli/saatsiz ayrımı yapmadan tüm açık görevleri sayar.
+  const todayTasks = (currentRoutine?.tasks ?? []).filter(
+    (t) => t.status !== "skipped",
+  );
+  const doneToday = todayTasks.filter((t) => t.status === "completed").length;
   const doneTodayPct =
-    scheduledToday.length > 0
-      ? Math.round((doneToday / scheduledToday.length) * 100)
+    todayTasks.length > 0
+      ? Math.round((doneToday / todayTasks.length) * 100)
       : 0;
   const unscheduledPending = (currentRoutine?.tasks ?? []).filter(
     (t) => !isScheduled(t) && t.status !== "completed",
   ).length;
 
+  // Ölçek günün toplam görev sayısına göre: 3 görevden 1'i çubukta ~1/3 yükselir.
   const maxSharp = Math.max(
     1,
-    ...[...fresh, ...deep].map((v) => v.completed),
+    ...[...fresh, ...deep].map((v) => Math.max(v.total, v.completed)),
   );
   const rng = [...fresh, ...deep].slice(-FRESH);
 
@@ -162,7 +174,7 @@ export default function StatsPage() {
           <div className="text-3xl font-bold text-text mt-1 tabular-nums">
             {doneToday}
             <span className="text-base text-text-muted font-medium">
-              /{scheduledToday.length}
+              /{todayTasks.length}
             </span>
           </div>
           <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">

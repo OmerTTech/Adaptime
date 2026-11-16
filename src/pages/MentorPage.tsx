@@ -19,10 +19,19 @@ import {
   History,
   Loader2,
   RefreshCw,
+  Settings2,
   Sparkles,
   Target,
   Timer,
 } from "lucide-react";
+
+const LAUNCH_COUNTS = [3, 5, 10] as const;
+const LAUNCH_COUNT_KEY = "adaptime-launch-count";
+
+function readLaunchCount(): number {
+  const raw = Number(localStorage.getItem(LAUNCH_COUNT_KEY));
+  return (LAUNCH_COUNTS as readonly number[]).includes(raw) ? raw : 3;
+}
 
 function pickFocusTask(tasks: TaskBlock[]): TaskBlock | null {
   return (
@@ -60,9 +69,13 @@ export default function MentorPage() {
     if (!selectedTaskId && fallbackTask) setSelectedTaskId(fallbackTask.id);
   }, [fallbackTask, selectedTaskId]);
 
+  // Günlük başlangıç maddesi sayısı (3/5/10) hatırlanır.
+  const [launchCount, setLaunchCount] = useState(readLaunchCount);
+  const [showLaunchSettings, setShowLaunchSettings] = useState(false);
+
   useEffect(() => {
-    if (token && !dailyLaunch) dispatch(loadDailyLaunch(token));
-  }, [token, dailyLaunch, dispatch]);
+    if (token) dispatch(loadDailyLaunch({ token, count: launchCount }));
+  }, [token, dispatch, launchCount]);
 
   // Yeni adım listesi geldiğinde hepsini seçili başlat.
   useEffect(() => {
@@ -256,30 +269,86 @@ export default function MentorPage() {
             <Target size={14} className="text-primary" />
             Günlük başlangıç
           </h3>
-          <button
-            onClick={() =>
-              token && dispatch(loadDailyLaunch({ token, refresh: true }))
-            }
-            className="text-[10px] text-text-muted hover:text-text"
-            title="Yeniden oluştur"
-          >
-            yenile
-          </button>
+          <div className="flex items-center gap-2 relative">
+            <button
+              onClick={() =>
+                token &&
+                dispatch(
+                  loadDailyLaunch({ token, refresh: true, count: launchCount }),
+                )
+              }
+              className="text-[10px] text-text-muted hover:text-text"
+              title="Yeniden oluştur"
+            >
+              yenile
+            </button>
+            <button
+              onClick={() => setShowLaunchSettings((v) => !v)}
+              className="p-1 rounded-md text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
+              title="Günlük başlangıç ayarı (kaç madde)"
+              aria-label="Günlük başlangıç ayarı"
+              aria-expanded={showLaunchSettings}
+            >
+              <Settings2 size={12} />
+            </button>
+
+            {showLaunchSettings && (
+              <div className="absolute right-0 top-7 z-20 w-40 rounded-xl border border-border bg-surface p-2 shadow-xl">
+                <p className="text-[10px] text-text-muted px-1 mb-1">
+                  Kaç madde?
+                </p>
+                <div className="flex gap-1">
+                  {LAUNCH_COUNTS.map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        setLaunchCount(n);
+                        localStorage.setItem(LAUNCH_COUNT_KEY, String(n));
+                        setShowLaunchSettings(false);
+                      }}
+                      className={`flex-1 py-1 rounded-lg text-[11px] font-semibold tabular-nums border transition-colors ${
+                        launchCount === n
+                          ? "bg-primary text-white border-primary"
+                          : "bg-background border-border text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         {dailyLaunch ? (
-          <ol className="space-y-1.5 text-sm text-text">
-            <li className="flex gap-2">
-              <span className="text-primary font-bold">1</span>
-              <span>{dailyLaunch.topTaskTitle}</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="text-primary font-bold">2</span>
-              <span>{dailyLaunch.firstStep}</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="text-primary font-bold">3</span>
-              <span className="text-text-muted">{dailyLaunch.doneCriteria}</span>
-            </li>
+          <ol className="space-y-2 text-sm text-text">
+            {(dailyLaunch.items && dailyLaunch.items.length > 0
+              ? dailyLaunch.items
+              : [
+                  {
+                    title: dailyLaunch.topTaskTitle,
+                    firstStep: dailyLaunch.firstStep,
+                    doneCriteria: dailyLaunch.doneCriteria,
+                  },
+                ]
+            ).map((item, idx) => (
+              <li key={`${item.title}-${idx}`} className="flex gap-2">
+                <span className="text-primary font-bold shrink-0 tabular-nums">
+                  {idx + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="font-medium leading-snug break-words">
+                    {item.title}
+                  </p>
+                  <p className="text-[11px] text-text-muted leading-snug mt-0.5">
+                    → {item.firstStep}
+                  </p>
+                  <p className="text-[10px] text-text-muted/80 leading-snug">
+                    ✓ {item.doneCriteria}
+                  </p>
+                </div>
+              </li>
+            ))}
           </ol>
         ) : (
           <p className="text-xs text-text-muted">

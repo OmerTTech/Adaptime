@@ -944,6 +944,65 @@ router.post("/:date/task-update", authMiddleware, async (req: AuthRequest, res) 
   }
 });
 
+// Seçili gündeki bir görevi kopyala (kopya saatsiz/yapılacak olarak eklenir).
+router.post("/:date/task-duplicate", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { date } = req.params;
+    const taskId = req.body?.taskId as string | undefined;
+    if (!taskId) return res.status(400).json({ error: "Görev gerekli" });
+
+    const routine = await Routine.findOne({ userId: req.userId, date });
+    if (!routine) return res.status(404).json({ error: "Gün bulunamadı" });
+
+    const task = (routine.tasks as ITaskBlock[]).find(
+      (t) => String((t as { _id?: unknown })._id) === taskId,
+    );
+    if (!task) return res.status(404).json({ error: "Görev bulunamadı" });
+
+    const minutes =
+      task.startTime && task.endTime
+        ? Math.max(5, Math.round((task.endTime - task.startTime) / 60_000))
+        : (task.estimatedMinutes ?? 30);
+
+    const snapshot = plainTask(task);
+    delete snapshot._id;
+    delete snapshot.startTime;
+    delete snapshot.endTime;
+    delete snapshot.originalDuration;
+    delete snapshot.startedAt;
+    delete snapshot.pausedAt;
+    delete snapshot.completedAt;
+
+    await Routine.updateOne(
+      { _id: routine._id },
+      {
+        $push: {
+          tasks: {
+            ...snapshot,
+            title: `${task.title} (kopya)`,
+            status: "pending",
+            pausedDuration: 0,
+            flowExtensions: 0,
+            progress: 0,
+            delayCount: 0,
+            estimatedMinutes: minutes,
+            createdAtClient: Date.now(),
+            subtasks: (task.subtasks ?? []).map((s) => ({
+              title: s.title,
+              done: false,
+            })),
+          },
+        },
+      },
+    );
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Task duplicate error:", error);
+    res.status(500).json({ error: "Sunucu hatası" });
+  }
+});
+
 // Seçili günden tek görevi sil (arşive de yazar).
 router.post("/:date/task-delete", authMiddleware, async (req: AuthRequest, res) => {
   try {

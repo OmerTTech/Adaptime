@@ -3,8 +3,11 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   updateTask,
   scheduleTask,
+  unscheduleTask,
   moveTaskAsSubtask,
+  addSubtasks,
 } from "@/store/slices/routineSlice";
+import AiSubtaskSplitter from "@/components/routine/AiSubtaskSplitter";
 import { closeEditModal } from "@/store/slices/uiSlice";
 import { suggestionFor } from "@/engine/estimates";
 import {
@@ -112,6 +115,10 @@ export default function EditTaskModal() {
         deadlineTs && Number.isFinite(deadlineTs) ? deadlineTs : undefined,
     };
 
+    const est = estimatedMinutes
+      ? Math.max(1, Number(estimatedMinutes))
+      : undefined;
+
     if (startTime && endTime) {
       let start = timeToTimestamp(startTime, today);
       let end = timeToTimestamp(endTime, today);
@@ -122,11 +129,14 @@ export default function EditTaskModal() {
         dispatch(
           scheduleTask({ id: task.id, startTime: start, endTime: end }),
         );
+        dispatch(updateTask({ id: task.id, updates: { ...meta, estimatedMinutes: est } }));
       }
-    } else if (!startTime && !endTime) {
-      const est = estimatedMinutes
-        ? Math.max(1, Number(estimatedMinutes))
-        : undefined;
+    } else if (!startTime && !endTime && isScheduled(task)) {
+      // "Planı kaldır" seçildi: saatler gerçekten silinir, görev yapılacaklara döner.
+      dispatch(unscheduleTask({ id: task.id, estimatedMinutes: est }));
+      dispatch(updateTask({ id: task.id, updates: meta }));
+    } else {
+      // Saatsiz görev: süre zorunlu değil, tahmini dakika opsiyonel.
       dispatch(
         updateTask({
           id: task.id,
@@ -135,7 +145,6 @@ export default function EditTaskModal() {
       );
     }
 
-    dispatch(updateTask({ id: task.id, updates: meta }));
     dispatch(closeEditModal());
   };
 
@@ -319,6 +328,15 @@ export default function EditTaskModal() {
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
+
+          <AiSubtaskSplitter
+            title={title}
+            description={description}
+            existing={(task.subtasks ?? []).map((s) => s.title)}
+            onAdd={(titles) =>
+              dispatch(addSubtasks({ id: task.id, titles }))
+            }
+          />
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">

@@ -30,8 +30,9 @@ const PAUSE_MODE_LABELS: Record<string, string> = {
 };
 
 const FLOW_MODE_LABELS: Record<string, string> = {
-  shift: "Kaydır (Tümünü İleri Al)",
-  eatNext: "Sonraki Görevden Düş",
+  shift: "Kaydır (Hepsini İleri Al)",
+  eatNext: "Kes (Sonrakinden Düş)",
+  balance: "Dengele (Yarı Kes, Yarı Kaydır)",
 };
 
 const EARLY_FINISH_MODE_LABELS: Record<string, string> = {

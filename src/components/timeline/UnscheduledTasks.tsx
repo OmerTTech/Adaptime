@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   completeTask,
+  duplicateTask,
   removeTask,
   updateTask,
   startTask,
@@ -10,11 +11,13 @@ import {
 } from "@/store/slices/routineSlice";
 import { openEditModal } from "@/store/slices/uiSlice";
 import { playSound } from "@/services/sound";
-import { isScheduled } from "@/types";
+import { isScheduled, PRIORITY_ORDER } from "@/types";
 import {
+  Check,
   CheckCircle,
   ChevronRight,
   Circle,
+  Copy,
   Crosshair,
   Pencil,
   Play,
@@ -36,9 +39,19 @@ export default function UnscheduledTasks() {
   // Uzun listeler performans için parça parça gösterilir (ayardan kapatılabilir).
   const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
-  const unscheduled = tasks.filter(
-    (t) => !isScheduled(t) && t.status !== "skipped",
-  );
+  // Açık görevler üstte (öncelik sırasına göre), tamamlananlar en altta.
+  const unscheduled = tasks
+    .filter((t) => !isScheduled(t) && t.status !== "skipped")
+    .sort((a, b) => {
+      const doneA = a.status === "completed" ? 1 : 0;
+      const doneB = b.status === "completed" ? 1 : 0;
+      if (doneA !== doneB) return doneA - doneB;
+      if (doneA === 1) return (b.completedAt ?? 0) - (a.completedAt ?? 0);
+      const pa = PRIORITY_ORDER[a.priority ?? "medium"];
+      const pb = PRIORITY_ORDER[b.priority ?? "medium"];
+      if (pa !== pb) return pa - pb;
+      return (a.createdAtClient ?? 0) - (b.createdAtClient ?? 0);
+    });
 
   if (unscheduled.length === 0) return null;
 
@@ -86,7 +99,9 @@ export default function UnscheduledTasks() {
           return (
             <div
               key={task.id}
-              className="rounded-lg hover:bg-surface-hover/50 transition-colors"
+              className={`rounded-lg transition-colors ${
+                completed ? "bg-surface-hover/30" : "hover:bg-surface-hover/50"
+              }`}
             >
               <div className="group flex items-center gap-1.5 px-1 py-1.5">
                 <button
@@ -103,18 +118,27 @@ export default function UnscheduledTasks() {
                       playSound("taskComplete");
                     }
                   }}
-                  className="shrink-0 cursor-pointer p-1 -m-0.5"
+                  className={`shrink-0 cursor-pointer rounded-full transition-transform ${
+                    completed
+                      ? ""
+                      : "p-0.5 hover:scale-110 hover:bg-surface-hover"
+                  }`}
                   title={completed ? "Geri al" : "Tamamla"}
+                  aria-pressed={completed}
                 >
                   {completed ? (
-                    <CheckCircle
-                      size={22}
-                      style={{ color: task.color, opacity: 0.9 }}
-                    />
+                    <span
+                      className="w-6 h-6 rounded-full grid place-items-center shadow-sm"
+                      style={{ backgroundColor: task.color }}
+                    >
+                      <Check size={15} className="text-white" strokeWidth={3} />
+                    </span>
                   ) : (
                     <Circle
-                      size={22}
-                      style={{ color: task.color, opacity: 0.75 }}
+                      size={24}
+                      className="text-text-muted/70"
+                      style={{ color: task.color, opacity: 0.9 }}
+                      strokeWidth={2}
                     />
                   )}
                 </button>
@@ -197,6 +221,13 @@ export default function UnscheduledTasks() {
                     <Play size={16} />
                   </button>
                 )}
+                <button
+                  onClick={() => dispatch(duplicateTask(task.id))}
+                  className="p-2 rounded-lg bg-surface-hover/60 text-text-muted hover:text-text transition-colors shrink-0"
+                  title="Kopyala (kopya yapılacaklara eklenir)"
+                >
+                  <Copy size={16} />
+                </button>
                 <button
                   onClick={() => dispatch(openEditModal(task.id))}
                   className="p-2 rounded-lg bg-surface-hover/60 text-text-muted hover:text-text transition-colors shrink-0"

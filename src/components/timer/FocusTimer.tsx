@@ -9,6 +9,8 @@ import {
   Zap,
   TimerOff,
   Pencil,
+  ListTodo,
+  AlarmClock,
 } from "lucide-react";
 import {
   completeTask,
@@ -17,6 +19,7 @@ import {
   adjustStartedAt,
   resumeTask,
   updateTask,
+  unscheduleTask,
 } from "@/store/slices/routineSlice";
 import { isScheduled, type ScheduledTask } from "@/types";
 import { playSound } from "@/services/sound";
@@ -26,6 +29,7 @@ import {
   openPauseModal,
   openFlowModal,
   openEarlyFinishModal,
+  openEditModal,
 } from "@/store/slices/uiSlice";
 
 export default function FocusTimer() {
@@ -59,6 +63,21 @@ export default function FocusTimer() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Planlanan bitiş geçtiğinde bir kez ses çal ve kartı uyarı moduna al.
+  const timeUpKey = currentTask
+    ? `${currentTask.id}:${currentTask.endTime}`
+    : null;
+  const [rungKey, setRungKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentTask || !timeUpKey) return;
+    const over = now >= currentTask.endTime;
+    if (over && currentTask.status === "active" && rungKey !== timeUpKey) {
+      setRungKey(timeUpKey);
+      playSound("focusEnd");
+    }
+    if (!over && rungKey === timeUpKey) setRungKey(null);
+  }, [now, currentTask, timeUpKey, rungKey]);
 
   const handlePause = useCallback(() => {
     if (!currentTask) return;
@@ -182,6 +201,12 @@ export default function FocusTimer() {
   const rSeconds = remSec % 60;
 
   const hasTimeLeft = remainingMinutes > 5;
+  const overtimeMs =
+    currentTask.status === "active"
+      ? Math.max(0, now - currentTask.endTime)
+      : 0;
+  const overtimeMinutes = Math.floor(overtimeMs / 60000);
+  const isTimeUp = overtimeMs > 0;
   const dimmed =
     isPauseModalOpen ||
     isPreviewModalOpen ||
@@ -199,8 +224,9 @@ export default function FocusTimer() {
         style={{
           borderColor: currentTask.color,
           backgroundColor: currentTask.color + "08",
-          boxShadow:
-            currentTask.status === "active"
+          boxShadow: isTimeUp
+            ? "0 0 0 3px rgba(239,68,68,0.35), 0 0 34px rgba(239,68,68,0.35)"
+            : currentTask.status === "active"
               ? `0 0 30px ${currentTask.color}20`
               : "none",
         }}
@@ -223,9 +249,25 @@ export default function FocusTimer() {
           </div>
         )}
 
-        <h2 className="text-xl font-bold text-text mt-2">
-          {currentTask.title}
-        </h2>
+        <div className="flex items-center justify-center gap-1.5 mt-2">
+          <h2 className="text-xl font-bold text-text break-words">
+            {currentTask.title}
+          </h2>
+          <button
+            onClick={() => dispatch(openEditModal(currentTask.id))}
+            className="p-1.5 rounded-lg text-text-muted hover:text-text hover:bg-surface-hover transition-colors shrink-0"
+            title="Düzenle (başlık, saat, süre) — görev çalışırken de açık"
+          >
+            <Pencil size={13} />
+          </button>
+        </div>
+
+        {isTimeUp && (
+          <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-danger/15 text-danger text-[11px] font-semibold animate-pulse">
+            <AlarmClock size={12} />
+            SÜRE BİTTİ · {overtimeMinutes} dk fazla
+          </div>
+        )}
 
         <div className="my-6">
           <div
@@ -335,14 +377,19 @@ export default function FocusTimer() {
           </button>
         </div>
 
-        {currentTask.status === "active" && (
-          <div className="flex items-center justify-center gap-2 mt-4">
+        {(currentTask.status === "active" || currentTask.status === "paused") && (
+          <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
             <button
               onClick={handleFlowState}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warning/10 text-warning hover:bg-warning/20 border border-warning/20 transition-all text-xs font-medium"
+              title="Flow: süre uzadı, kalan planı yeniden ayarla (kes / kaydır / dengele)"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-xs font-medium ${
+                isTimeUp
+                  ? "bg-warning text-black border-warning animate-pulse"
+                  : "bg-warning/10 text-warning hover:bg-warning/20 border-warning/20"
+              }`}
             >
               <Zap size={12} />
-              +Flow
+              {isTimeUp ? "Planı uyarla" : "+Flow"}
             </button>
             {hasTimeLeft && (
               <button
@@ -353,6 +400,14 @@ export default function FocusTimer() {
                 Erken Bitir
               </button>
             )}
+            <button
+              onClick={() => dispatch(unscheduleTask({ id: currentTask.id }))}
+              title="Planı kaldır: görevi saatlerinden ayır ve yapılacaklar listesine geri taşı"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-border text-text-muted hover:text-text text-xs font-medium transition-all"
+            >
+              <ListTodo size={12} />
+              Yapılacaklara al
+            </button>
           </div>
         )}
 

@@ -3,14 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { loadTodayRoutine } from "@/store/slices/routineSlice";
 import { routineApi } from "@/services/api";
-import {
-  ArchiveRestore,
-  ArrowRight,
-  ChevronDown,
-  ChevronUp,
-  History,
-  Loader2,
-} from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, History, Loader2 } from "lucide-react";
 
 interface UnfinishedItem {
   date: string;
@@ -23,54 +16,25 @@ interface UnfinishedItem {
   subtaskCount: number;
 }
 
-interface ArchivedItem {
-  id: string;
-  dateKey: string;
-  removedAt: number;
-  title: string;
-  color: string;
-}
-
 const VISIBLE_LIMIT = 5;
 
 export default function CarryOver() {
   const { token } = useAuth();
   const dispatch = useAppDispatch();
   const [items, setItems] = useState<UnfinishedItem[]>([]);
-  const [archived, setArchived] = useState<ArchivedItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
-  const [showArchive, setShowArchive] = useState(false);
-  const taskCount = useAppSelector(
-    (s) => s.routine.currentRoutine?.tasks.length ?? 0,
-  );
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
-
-  // Görev eklenip silindikçe arşiv listesini tazele (kayıt 1.5 sn debounce'lı).
-  useEffect(() => {
-    if (!token) return;
-    const timer = setTimeout(() => {
-      routineApi
-        .archive(token, 15)
-        .then((res) => setArchived(res.items ?? []))
-        .catch(() => {
-          /* sessiz */
-        });
-    }, 2400);
-    return () => clearTimeout(timer);
-  }, [token, taskCount]);
 
   useEffect(() => {
     if (!token) return;
     let alive = true;
-    Promise.all([
-      routineApi.unfinished(token).catch(() => ({ date: "", tasks: [] })),
-      routineApi.archive(token, 15).catch(() => ({ items: [] })),
-    ]).then(([unfinished, archive]) => {
-      if (!alive) return;
-      setItems(unfinished.tasks ?? []);
-      setArchived(archive.items ?? []);
-    });
+    routineApi
+      .unfinished(token)
+      .catch(() => ({ date: "", tasks: [] }))
+      .then((unfinished) => {
+        if (alive) setItems(unfinished.tasks ?? []);
+      });
     return () => {
       alive = false;
     };
@@ -102,19 +66,7 @@ export default function CarryOver() {
     }
   };
 
-  const restore = async (item: ArchivedItem) => {
-    if (!token) return;
-    setBusy(item.id);
-    try {
-      await routineApi.restoreArchived(item.id, token);
-      setArchived((prev) => prev.filter((i) => i.id !== item.id));
-      await refreshToday();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (items.length === 0 && archived.length === 0) return null;
+  if (items.length === 0) return null;
 
   const visible = progressive ? items.slice(0, visibleCount) : items;
 
@@ -213,51 +165,6 @@ export default function CarryOver() {
         </>
       )}
 
-      {archived.length > 0 && (
-        <div className={items.length > 0 ? "mt-3 pt-2 border-t border-border" : ""}>
-          <button
-            onClick={() => setShowArchive((v) => !v)}
-            className="flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text transition-colors"
-          >
-            <ArchiveRestore size={12} />
-            Son silinenler ({archived.length})
-            {showArchive ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
-
-          {showArchive && (
-            <div className="mt-1.5 space-y-1">
-              {archived.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-lg bg-background/60 px-2 py-1.5"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0 opacity-70"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-xs text-text-muted flex-1 min-w-0 truncate" title={item.title}>
-                    {item.title}
-                  </span>
-                  <span className="text-[10px] text-text-muted/70 shrink-0">
-                    {item.dateKey}
-                  </span>
-                  <button
-                    onClick={() => restore(item)}
-                    disabled={busy !== null}
-                    className="shrink-0 px-2 py-1 rounded-lg bg-primary/15 text-primary text-[11px] font-medium hover:bg-primary/25 transition-colors disabled:opacity-50"
-                  >
-                    {busy === item.id ? (
-                      <Loader2 size={11} className="animate-spin" />
-                    ) : (
-                      "Geri yükle"
-                    )}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

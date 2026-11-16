@@ -14,10 +14,26 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 export function pushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
+    window.isSecureContext &&
     "serviceWorker" in navigator &&
     "PushManager" in window &&
     "Notification" in window
   );
+}
+
+/** Push'un neden çalışmadığını tek cümleyle söyler (yoksa null). */
+export function pushBlocker(): string | null {
+  if (typeof window === "undefined") return null;
+  if (!window.isSecureContext) {
+    return "Bildirimler yalnız HTTPS veya localhost üzerinde çalışır. Telefonda siteyi https:// adresiyle aç (LAN IP'siyle değil).";
+  }
+  if (!("serviceWorker" in navigator)) return "Tarayıcı service worker desteklemiyor.";
+  if (!("PushManager" in window)) return "Tarayıcı push bildirimlerini desteklemiyor.";
+  if (!("Notification" in window)) return "Tarayıcı bildirimlerini desteklemiyor.";
+  if (Notification.permission === "denied") {
+    return "Bildirim izni tarayıcıda engellenmiş. Site ayarları → Bildirimler → İzin ver.";
+  }
+  return null;
 }
 
 async function registration(): Promise<ServiceWorkerRegistration> {
@@ -50,6 +66,8 @@ export async function pushSubscriptionState(): Promise<
 export async function enablePush(
   token: string,
 ): Promise<{ ok: boolean; message?: string }> {
+  const blocker = pushBlocker();
+  if (blocker) return { ok: false, message: blocker };
   if (!pushSupported()) {
     return { ok: false, message: "Bu tarayıcı arka plan bildirimlerini desteklemiyor." };
   }
@@ -67,7 +85,11 @@ export async function enablePush(
 
   const { publicKey, enabled } = await pushApi.key();
   if (!enabled || !publicKey) {
-    return { ok: false, message: "Sunucuda VAPID anahtarı tanımlı değil." };
+    return {
+      ok: false,
+      message:
+        "Sunucuda VAPID anahtarı tanımlı değil. Sunucu .env dosyasına VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY eklenmeli.",
+    };
   }
 
   const reg = await registration();

@@ -356,7 +356,12 @@ export default function DiaryPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => handleSave()}
-            disabled={!token || saving}
+            disabled={!token || saving || (!hasContent && !current)}
+            title={
+              hasContent || current
+                ? "Günlüğü kaydet"
+                : "Kaydetmek için en az bir alanı doldur"
+            }
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}

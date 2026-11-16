@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import AiSubtaskSplitter from "@/components/routine/AiSubtaskSplitter";
 import { CalendarDays, Clock, CornerDownRight, Zap } from "lucide-react";
 
 const PRESET_COLORS = [
@@ -54,6 +55,7 @@ export default function AddTaskModal() {
   const [category, setCategory] = useState<TaskCategory>("work");
   const [deadline, setDeadline] = useState("");
   const [description, setDescription] = useState("");
+  const [subtaskTitles, setSubtaskTitles] = useState<string[]>([]);
   const [selectedColor, setSelectedColor] = useState(getRandomColor());
   const [asSubtask, setAsSubtask] = useState(false);
   const [parentId, setParentId] = useState("");
@@ -91,7 +93,7 @@ export default function AddTaskModal() {
         progress: 0,
         delayCount: 0,
         createdAtClient: Date.now(),
-        subtasks: [],
+        subtasks: subtaskTitles.map((title) => ({ title, done: false })),
       };
 
       let payload: Record<string, unknown> = { ...base, estimatedMinutes: est };
@@ -132,6 +134,7 @@ export default function AddTaskModal() {
       setEstimatedMinutes("");
       setDeadline("");
       setDescription("");
+      setSubtaskTitles([]);
       setPriority("medium");
       setCategory("work");
       setParallel(false);
@@ -157,9 +160,18 @@ export default function AddTaskModal() {
         start = end - est * 60_000;
       }
       if (start === undefined || end === undefined) return;
-      dispatch(addTask({ ...common, startTime: start, endTime: end }));
+      dispatch(
+        addTask({
+          ...common,
+          startTime: start,
+          endTime: end,
+          subtasks: subtaskTitles,
+        }),
+      );
     } else {
-      dispatch(addTask({ ...common, estimatedMinutes: est }));
+      dispatch(
+        addTask({ ...common, estimatedMinutes: est, subtasks: subtaskTitles }),
+      );
     }
 
     setTitle("");
@@ -168,6 +180,7 @@ export default function AddTaskModal() {
     setEstimatedMinutes("");
     setDeadline("");
     setDescription("");
+    setSubtaskTitles([]);
     setPriority("medium");
     setCategory("work");
     setAsSubtask(false);
@@ -448,6 +461,43 @@ export default function AddTaskModal() {
               className="w-full px-3 py-2 rounded-lg bg-background border border-border text-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
+
+          <AiSubtaskSplitter
+            title={title}
+            description={description}
+            existing={subtaskTitles}
+            onAdd={(titles) =>
+              setSubtaskTitles((prev) => [...prev, ...titles])
+            }
+          />
+
+          {subtaskTitles.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] text-text-muted">
+                Eklenecek alt görevler ({subtaskTitles.length})
+              </p>
+              {subtaskTitles.map((sub, i) => (
+                <div
+                  key={`${sub}-${i}`}
+                  className="flex items-center gap-2 rounded-lg bg-background border border-border px-2 py-1"
+                >
+                  <span className="flex-1 min-w-0 text-[11px] text-text truncate">
+                    {sub}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSubtaskTitles((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                    className="p-0.5 rounded text-text-muted hover:text-danger"
+                    title="Kaldır"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-text-muted mb-2 block">Renk</label>

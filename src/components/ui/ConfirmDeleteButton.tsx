@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { CircleHelp, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ConfirmDeleteButtonProps {
@@ -61,13 +61,17 @@ export default function ConfirmDeleteButton({
         className,
         armed &&
           (armedClassName ??
-            "bg-danger text-white ring-2 ring-danger/60 scale-105"),
+            "bg-danger text-white ring-2 ring-danger/60 scale-105 animate-pulse"),
       )}
       title={armed ? "Silmeyi onaylamak için tekrar bas" : title}
       aria-label={armed ? "Silmeyi onayla" : title}
       aria-pressed={armed}
     >
-      {armed ? <Check size={size} strokeWidth={3} /> : (icon ?? <Trash2 size={size} />)}
+      {armed ? (
+        <CircleHelp size={size} strokeWidth={2.6} />
+      ) : (
+        icon ?? <Trash2 size={size} />
+      )}
     </button>
   );
 }

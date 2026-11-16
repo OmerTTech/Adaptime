@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import {
   CalendarClock,
   CheckCircle2,
+  Copy,
   Loader2,
   Plus,
   Repeat,
@@ -140,6 +141,19 @@ export default function DayPlanView() {
     try {
       await routineApi.taskDelete(selectedDate, task.id, token);
       setConfirmId(null);
+      await load();
+      dispatch(bumpDayRefresh());
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const duplicate = async (task: DayTask) => {
+    if (!token || task.virtual) return;
+    setBusy(task.id);
+    try {
+      await routineApi.taskDuplicate(selectedDate, task.id, token);
+      setFlash(`“${task.title}” kopyalandı (yapılacak olarak eklendi).`);
       await load();
       dispatch(bumpDayRefresh());
     } finally {
@@ -359,6 +373,14 @@ export default function DayPlanView() {
             </button>
           ) : (
             <>
+            <button
+              onClick={() => duplicate(task)}
+              disabled={busy === task.id}
+              className="shrink-0 p-1 rounded-md text-text-muted hover:text-text hover:bg-surface-hover transition-colors disabled:opacity-40"
+              title="Kopyala (yapılacak olarak eklenir)"
+            >
+              <Copy size={12} />
+            </button>
             <button
               onClick={() => openMove(task)}
               className="shrink-0 p-1 rounded-md text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"

@@ -13,6 +13,7 @@ import {
 import {
   disablePush,
   enablePush,
+  pushBlocker,
   pushSubscriptionState,
   pushSupported,
   sendTestPush,
@@ -667,7 +668,8 @@ export default function SettingsPage() {
                   : pushState === "denied"
                     ? "Tarayıcı bildirimleri engellemiş. Site ayarlarından izin ver."
                     : pushState === "unsupported"
-                      ? "Bu tarayıcı push bildirimlerini desteklemiyor."
+                      ? (pushBlocker() ??
+                        "Bu tarayıcı push bildirimlerini desteklemiyor.")
                       : "Kapalı. Açtığında bu cihaz sunucuya kaydedilir (VAPID)."}
               </p>
             </div>
@@ -693,6 +695,11 @@ export default function SettingsPage() {
           {pushMessage && (
             <p className="text-[10px] text-primary mt-1.5">{pushMessage}</p>
           )}
+
+          <p className="text-[10px] text-text-muted/70 mt-2">
+            Android'de bildirim için site <strong>https</strong> ile açılmalı
+            (LAN IP'si http olmaz) ve Chrome'a bildirim izni verilmeli.
+          </p>
         </div>
       </div>
 

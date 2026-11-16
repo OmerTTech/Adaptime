@@ -116,10 +116,11 @@ export const logActivityThunk = createAsyncThunk(
 
 export const loadDailyLaunch = createAsyncThunk(
   "mentor/dailyLaunch",
-  async (arg: string | { token: string; refresh?: boolean }) => {
+  async (arg: string | { token: string; refresh?: boolean; count?: number }) => {
     const token = typeof arg === "string" ? arg : arg.token;
     const refresh = typeof arg === "string" ? false : Boolean(arg.refresh);
-    return accountabilityApi.dailyLaunch(token, refresh);
+    const count = typeof arg === "string" ? 3 : (arg.count ?? 3);
+    return accountabilityApi.dailyLaunch(token, refresh, count);
   },
 );
 

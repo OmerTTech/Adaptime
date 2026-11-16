@@ -6,12 +6,20 @@ import mongoose, { Schema, type Document } from "mongoose";
 
 export type MentorTone = "direct" | "balanced" | "supportive";
 
+export interface IDailyLaunchItem {
+  title: string;
+  firstStep: string;
+  doneCriteria: string;
+}
+
 export interface IDailyLaunch {
   date: string;
   topTaskTitle: string;
   firstStep: string;
   doneCriteria: string;
   source: "ai" | "fallback";
+  count?: number;
+  items?: IDailyLaunchItem[];
 }
 
 export interface IMentorSettings extends Document {
@@ -50,6 +58,15 @@ const mentorSettingsSchema = new Schema<IMentorSettings>(
         firstStep: String,
         doneCriteria: String,
         source: { type: String, enum: ["ai", "fallback"] },
+        count: Number,
+        items: [
+          {
+            _id: false,
+            title: String,
+            firstStep: String,
+            doneCriteria: String,
+          },
+        ],
       },
       default: null,
     },

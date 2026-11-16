@@ -40,6 +40,7 @@ import MissedRepeats from "@/components/timeline/MissedRepeats";
 import CarryOver from "@/components/timeline/CarryOver";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import NowNextCard from "@/components/timeline/NowNextCard";
+import DeletedTasks from "@/components/timeline/DeletedTasks";
 import DayPlanView from "@/components/calendar/DayPlanView";
 import ConflictPrompt from "@/components/timeline/ConflictPrompt";
 import { getTodayString } from "@/utils";
@@ -354,6 +355,9 @@ export default function TodayPage() {
               className={`w-full max-w-2xl mx-auto ${isTodayView && viewMode === "oclock" ? "mt-6" : "mt-3"}`}
             >
               <CalendarPanel />
+
+              {/* Son silinen görevler takvimin hemen altında, listelerin yanında. */}
+              {isTodayView && <DeletedTasks />}
             </div>
 
             {!isTodayView && (

@@ -17,6 +17,15 @@ interface UnfinishedItem {
 }
 
 const VISIBLE_LIMIT = 5;
+const OPEN_KEY = "adaptime-carryover-open";
+
+function readOpen(): boolean {
+  try {
+    return localStorage.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export default function CarryOver() {
   const { token } = useAuth();
@@ -24,7 +33,21 @@ export default function CarryOver() {
   const [items, setItems] = useState<UnfinishedItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
+  // Perde gibi: varsayılan kapalı, kullanıcı açarsa tercih hatırlanır.
+  const [open, setOpen] = useState(readOpen);
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
+
+  const toggleOpen = () => {
+    setOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(OPEN_KEY, next ? "1" : "0");
+      } catch {
+        /* özel mod: yalnızca bu oturumda geçerli */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -74,7 +97,7 @@ export default function CarryOver() {
     <div className="rounded-xl border border-border bg-surface p-3">
       {items.length > 0 && (
         <>
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2">
             <History size={13} className="text-primary shrink-0" />
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">
               Dünden devam edenler ({items.length})
@@ -92,79 +115,96 @@ export default function CarryOver() {
               )}
               Tümünü taşı
             </button>
+            <button
+              onClick={toggleOpen}
+              aria-expanded={open}
+              className="shrink-0 p-1 rounded-lg text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
+              title={open ? "Listeyi kapat" : "Listeyi göster"}
+            >
+              {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
           </div>
 
-          <div className="space-y-1">
-            {visible.map((item) => (
-              <div
-                key={item.taskId}
-                className="flex items-center gap-2 rounded-lg bg-background/60 px-2 py-1.5"
-              >
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span
-                  className="text-xs text-text flex-1 min-w-0 truncate"
-                  title={item.title}
-                >
-                  {item.title}
-                </span>
-                {item.subtaskCount > 0 && (
-                  <span className="text-[10px] text-text-muted shrink-0">
-                    {item.subtaskCount} alt görev
-                  </span>
-                )}
-                <span className="text-[10px] text-text-muted shrink-0 tabular-nums">
-                  {item.startTime
-                    ? new Date(item.startTime).toLocaleTimeString("tr-TR", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
-                    : item.estimatedMinutes
-                      ? `~${item.estimatedMinutes} dk`
-                      : "saatsiz"}
-                </span>
-                <button
-                  onClick={() => moveOne(item)}
-                  disabled={busy !== null}
-                  className="shrink-0 px-2 py-1 rounded-lg bg-surface-hover text-text-muted hover:text-text text-[11px] transition-colors disabled:opacity-50"
-                  title="Bugünün planına taşı"
-                >
-                  {busy === item.taskId ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    "Taşı"
-                  )}
-                </button>
+          <div
+            className={`grid transition-all duration-300 ease-out ${
+              open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+            }`}
+          >
+            <div className="overflow-hidden" inert={!open}>
+              <div className="space-y-1 pt-2">
+                {visible.map((item) => (
+                  <div
+                    key={item.taskId}
+                    className="flex items-center gap-2 rounded-lg bg-background/60 px-2 py-1.5"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span
+                      className="text-xs text-text flex-1 min-w-0 truncate"
+                      title={item.title}
+                    >
+                      {item.title}
+                    </span>
+                    {item.subtaskCount > 0 && (
+                      <span className="text-[10px] text-text-muted shrink-0">
+                        {item.subtaskCount} alt görev
+                      </span>
+                    )}
+                    <span className="text-[10px] text-text-muted shrink-0 tabular-nums">
+                      {item.startTime
+                        ? new Date(item.startTime).toLocaleTimeString("tr-TR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : item.estimatedMinutes
+                          ? `~${item.estimatedMinutes} dk`
+                          : "saatsiz"}
+                    </span>
+                    <button
+                      onClick={() => moveOne(item)}
+                      disabled={busy !== null}
+                      className="shrink-0 px-2 py-1 rounded-lg bg-surface-hover text-text-muted hover:text-text text-[11px] transition-colors disabled:opacity-50"
+                      title="Bugünün planına taşı"
+                    >
+                      {busy === item.taskId ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        "Taşı"
+                      )}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {progressive && items.length > visibleCount && (
-            <button
-              onClick={() => setVisibleCount((v) => v + 5)}
-              className="mt-1.5 flex items-center gap-1 text-[11px] text-primary hover:underline transition-colors"
-            >
-              <ChevronDown size={12} />
-              +{Math.min(5, items.length - visibleCount)} görev daha
-              {items.length - visibleCount > 5
-                ? ` (${items.length - visibleCount} kaldı)`
-                : ""}
-            </button>
-          )}
-          {progressive && items.length <= visibleCount && visibleCount > VISIBLE_LIMIT && (
-            <button
-              onClick={() => setVisibleCount(VISIBLE_LIMIT)}
-              className="mt-1.5 flex items-center gap-1 text-[11px] text-text-muted hover:text-text transition-colors"
-            >
-              <ChevronUp size={12} />
-              Daha az göster
-            </button>
-          )}
+              {progressive && items.length > visibleCount && (
+                <button
+                  onClick={() => setVisibleCount((v) => v + 5)}
+                  className="mt-1.5 flex items-center gap-1 text-[11px] text-primary hover:underline transition-colors"
+                >
+                  <ChevronDown size={12} />
+                  +{Math.min(5, items.length - visibleCount)} görev daha
+                  {items.length - visibleCount > 5
+                    ? ` (${items.length - visibleCount} kaldı)`
+                    : ""}
+                </button>
+              )}
+              {progressive &&
+                items.length <= visibleCount &&
+                visibleCount > VISIBLE_LIMIT && (
+                  <button
+                    onClick={() => setVisibleCount(VISIBLE_LIMIT)}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] text-text-muted hover:text-text transition-colors"
+                  >
+                    <ChevronUp size={12} />
+                    Daha az göster
+                  </button>
+                )}
+            </div>
+          </div>
         </>
       )}
-
     </div>
   );
 }

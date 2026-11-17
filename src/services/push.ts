@@ -88,7 +88,7 @@ export async function enablePush(
     return {
       ok: false,
       message:
-        "Sunucuda VAPID anahtarı tanımlı değil. Sunucu .env dosyasına VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY eklenmeli.",
+        "Sunucu arka plan bildirimi anahtarı üretemedi. Sunucu .env dosyasına VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY eklenmeli (veya veritabanı bağlantısı düzelmeli).",
     };
   }
 

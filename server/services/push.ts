@@ -6,24 +6,94 @@ const webpush =
   (webpushModule as unknown as { default?: typeof webpushModule }).default ??
   webpushModule;
 import type mongoose from "mongoose";
+import { AppConfig } from "../models/AppConfig.js";
 import { PushSubscription } from "../models/PushSubscription.js";
 import { MentorSettings } from "../models/Accountability.js";
 import { Routine } from "../models/Routine.js";
 import { User } from "../models/User.js";
 import { dateKeyInTz } from "./time.js";
 
-const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
-const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const SUBJECT = process.env.VAPID_SUBJECT || "mailto:adaptime@example.com";
+const CONFIG_KEY = "vapid";
 
-/** VAPID anahtarları yoksa arka plan bildirimi sessizce kapanır. */
-export const pushEnabled = Boolean(PUBLIC_KEY && PRIVATE_KEY);
-
-if (pushEnabled) {
-  webpush.setVapidDetails(SUBJECT, PUBLIC_KEY!, PRIVATE_KEY!);
+interface VapidKeys {
+  publicKey: string;
+  privateKey: string;
 }
 
-export const vapidPublicKey = PUBLIC_KEY ?? null;
+let vapidKeys: VapidKeys | null = null;
+let pending: Promise<{ enabled: boolean; publicKey: string | null }> | null =
+  null;
+let failureLogged = false;
+
+/**
+ * VAPID anahtarlarını hazırlar.
+ *
+ * Sıra: `.env` → veritabanında saklanan anahtarlar → yeni üretip veritabanına yaz.
+ * Böylece ortam değişkenleri tanımlanmamış sunucularda (ör. panelden env
+ * eklenmemiş dağıtımlar) arka plan bildirimleri yine de çalışır; aynı MongoDB'yi
+ * kullanan tüm örnekler aynı anahtar çiftini paylaşır.
+ */
+export async function ensureVapid(): Promise<{
+  enabled: boolean;
+  publicKey: string | null;
+}> {
+  if (vapidKeys) return { enabled: true, publicKey: vapidKeys.publicKey };
+  if (pending) return pending;
+
+  pending = (async () => {
+    const envPublic = process.env.VAPID_PUBLIC_KEY?.trim();
+    const envPrivate = process.env.VAPID_PRIVATE_KEY?.trim();
+    let keys: VapidKeys | null =
+      envPublic && envPrivate
+        ? { publicKey: envPublic, privateKey: envPrivate }
+        : null;
+
+    if (!keys) {
+      try {
+        const stored = await AppConfig.findOne({ key: CONFIG_KEY }).lean();
+        const value = stored?.value as Partial<VapidKeys> | undefined;
+        if (value?.publicKey && value?.privateKey) {
+          keys = { publicKey: value.publicKey, privateKey: value.privateKey };
+        } else {
+          const generated = webpush.generateVAPIDKeys();
+          keys = generated;
+          await AppConfig.findOneAndUpdate(
+            { key: CONFIG_KEY },
+            { $set: { value: generated } },
+            { upsert: true, setDefaultsOnInsert: true },
+          );
+          console.log(
+            "[push] VAPID anahtarları üretildi ve veritabanına kaydedildi",
+          );
+        }
+      } catch (error) {
+        if (!failureLogged) {
+          failureLogged = true;
+          console.error("[push] VAPID anahtarları hazırlanamadı:", error);
+        }
+        return { enabled: false, publicKey: null };
+      }
+    }
+
+    try {
+      webpush.setVapidDetails(SUBJECT, keys.publicKey, keys.privateKey);
+    } catch (error) {
+      console.error("[push] VAPID anahtarları geçersiz:", error);
+      return { enabled: false, publicKey: null };
+    }
+
+    vapidKeys = keys;
+    failureLogged = false;
+    return { enabled: true, publicKey: keys.publicKey };
+  })();
+
+  try {
+    return await pending;
+  } finally {
+    pending = null;
+  }
+}
 
 export interface PushPayload {
   title: string;
@@ -40,7 +110,8 @@ export async function sendPushToUser(
   userId: string | mongoose.Types.ObjectId,
   payload: PushPayload,
 ): Promise<{ sent: number; total: number; enabled: boolean }> {
-  if (!pushEnabled) return { sent: 0, total: 0, enabled: false };
+  const config = await ensureVapid();
+  if (!config.enabled) return { sent: 0, total: 0, enabled: false };
 
   const subscriptions = await PushSubscription.find({ userId });
   let sent = 0;
@@ -81,13 +152,11 @@ function rememberKey(key: string) {
  * planlı görevler için bildirim. Dakikada bir çalışır, idempotenttir.
  */
 export function startPushReminders() {
-  if (!pushEnabled) {
-    console.log("[push] VAPID anahtarları yok: arka plan bildirimleri kapalı");
-    return;
-  }
-
   const tick = async () => {
     try {
+      const config = await ensureVapid();
+      if (!config.enabled) return;
+
       const userIds = await PushSubscription.distinct("userId");
       if (userIds.length === 0) return;
 
@@ -181,5 +250,11 @@ export function startPushReminders() {
 
   void tick();
   setInterval(() => void tick(), 60_000);
-  console.log("[push] görev hatırlatıcıları aktif");
+  void ensureVapid().then((config) => {
+    console.log(
+      config.enabled
+        ? "[push] görev hatırlatıcıları aktif"
+        : "[push] VAPID anahtarları hazırlanamadı: arka plan bildirimleri kapalı",
+    );
+  });
 }

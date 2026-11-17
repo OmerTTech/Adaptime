@@ -2,9 +2,8 @@ import { Router } from "express";
 import { PushSubscription } from "../models/PushSubscription.js";
 import { authMiddleware, type AuthRequest } from "../middleware/auth.js";
 import {
-  pushEnabled,
+  ensureVapid,
   sendPushToUser,
-  vapidPublicKey,
 } from "../services/push.js";
 
 const router = Router();
@@ -15,8 +14,9 @@ interface IncomingSubscription {
 }
 
 // Tarayıcının abone olurken ihtiyaç duyduğu genel anahtar.
-router.get("/key", (_req, res) => {
-  res.json({ publicKey: vapidPublicKey, enabled: pushEnabled });
+router.get("/key", async (_req, res) => {
+  const config = await ensureVapid();
+  res.json({ publicKey: config.publicKey, enabled: config.enabled });
 });
 
 router.post("/subscribe", authMiddleware, async (req: AuthRequest, res) => {
@@ -44,7 +44,8 @@ router.post("/subscribe", authMiddleware, async (req: AuthRequest, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
-    res.json({ ok: true, enabled: pushEnabled });
+    const config = await ensureVapid();
+    res.json({ ok: true, enabled: config.enabled });
   } catch (error) {
     console.error("Push subscribe error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
@@ -69,7 +70,8 @@ router.post("/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
 router.get("/status", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const count = await PushSubscription.countDocuments({ userId: req.userId });
-    res.json({ subscribed: count, enabled: pushEnabled });
+    const config = await ensureVapid();
+    res.json({ subscribed: count, enabled: config.enabled });
   } catch (error) {
     console.error("Push status error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
@@ -87,7 +89,8 @@ router.post("/test", authMiddleware, async (req: AuthRequest, res) => {
     });
     if (!result.enabled) {
       return res.status(503).json({
-        error: "Sunucuda VAPID anahtarları tanımlı değil.",
+        error:
+          "Sunucu bildirim anahtarlarını hazırlayamadı. Sunucu .env dosyasına VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY ekleyin veya veritabanı bağlantısını kontrol edin.",
       });
     }
     res.json({ ok: true, ...result });

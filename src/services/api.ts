@@ -316,6 +316,13 @@ export const pushApi = {
       method: "POST",
       token,
     }),
+
+  /** Odak sayacı açıkken "uygulama görünür" sinyali. */
+  focusPing: (token: string) =>
+    apiFetch<{ ok: boolean }>("/api/push/focus-ping", {
+      method: "POST",
+      token,
+    }),
 };
 
 // AI

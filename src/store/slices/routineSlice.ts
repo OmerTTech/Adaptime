@@ -530,6 +530,50 @@ const routineSlice = createSlice({
         task.status = "active";
       }
     },
+    /**
+     * Uygulama kapalıyken (veya sekme kapatılmışken) açık kalan odak süresini
+     * sayma: son görülme anından sonraki boşluk duraklatma sayılır ve görev
+     * duraklatılır. Böylece dönüldüğünde sayaç saatlerce "odak" göstermez.
+     */
+    reclaimFocusGap: (
+      state,
+      action: PayloadAction<{ id: string; lastSeenAt: number }>,
+    ) => {
+      if (!state.currentRoutine) return;
+      const task = state.currentRoutine.tasks.find(
+        (t) => t.id === action.payload.id,
+      );
+      if (!task || task.status !== "active") return;
+      const activeStart =
+        task.startedAt ?? task.startTime ?? action.payload.lastSeenAt;
+      const elapsed = Math.max(
+        0,
+        Date.now() - activeStart - task.pausedDuration,
+      );
+      const gap = Math.min(
+        Math.max(0, Date.now() - action.payload.lastSeenAt),
+        elapsed,
+      );
+      if (gap < 60_000) return;
+      task.pausedDuration += gap;
+      task.status = "paused";
+      task.pausedAt = Date.now();
+    },
+    /** "Bu süre sayılsın": geri alınan boşluk duraklatmadan düşülür. */
+    undoReclaimFocus: (
+      state,
+      action: PayloadAction<{ id: string; gapMs: number }>,
+    ) => {
+      if (!state.currentRoutine) return;
+      const task = state.currentRoutine.tasks.find(
+        (t) => t.id === action.payload.id,
+      );
+      if (!task) return;
+      task.pausedDuration = Math.max(
+        0,
+        task.pausedDuration - action.payload.gapMs,
+      );
+    },
     skipTask: (state, action: PayloadAction<string>) => {
       if (!state.currentRoutine) return;
       const task = state.currentRoutine.tasks.find(
@@ -716,6 +760,8 @@ export const clearPendingConflict = routineSlice.actions.clearPendingConflict;
 export const adjustStartedAt = routineSlice.actions.adjustStartedAt;
 export const pauseTask = routineSlice.actions.pauseTask;
 export const resumeTask = routineSlice.actions.resumeTask;
+export const reclaimFocusGap = routineSlice.actions.reclaimFocusGap;
+export const undoReclaimFocus = routineSlice.actions.undoReclaimFocus;
 export const skipTask = routineSlice.actions.skipTask;
 export const completeTask = routineSlice.actions.completeTask;
 export const applyModifiedTasks = routineSlice.actions.applyModifiedTasks;

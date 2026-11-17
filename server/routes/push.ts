@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { PushSubscription } from "../models/PushSubscription.js";
+import { User } from "../models/User.js";
 import { authMiddleware, type AuthRequest } from "../middleware/auth.js";
 import {
   ensureVapid,
@@ -74,6 +75,22 @@ router.get("/status", authMiddleware, async (req: AuthRequest, res) => {
     res.json({ subscribed: count, enabled: config.enabled });
   } catch (error) {
     console.error("Push status error:", error);
+    res.status(500).json({ error: "Sunucu hatası" });
+  }
+});
+
+// Odak sayacı açıkken istemci "buradayım" der.
+// Süre bittiğinde uygulama içi alarm çalıyorsa telefona ayrıca bildirim
+// gönderilmez; uygulama kapalıysa sunucu hatırlatma yollar.
+router.post("/focus-ping", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    await User.updateOne(
+      { _id: req.userId },
+      { $set: { focusSeenAt: Date.now() } },
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Focus ping error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
   }
 });

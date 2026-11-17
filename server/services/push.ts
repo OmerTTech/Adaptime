@@ -147,6 +147,15 @@ function rememberKey(key: string) {
   alreadyNotified.add(key);
 }
 
+/** "45 dk", "2 sa 10 dk" gibi kısa süre metni. */
+function humanDuration(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} dk`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours} sa ${rest} dk` : `${hours} sa`;
+}
+
 /**
  * Yaklaşan görev hatırlatıcıları: önümüzdeki 10 dakikada başlayacak
  * planlı görevler için bildirim. Dakikada bir çalışır, idempotenttir.
@@ -161,7 +170,7 @@ export function startPushReminders() {
       if (userIds.length === 0) return;
 
       const users = await User.find({ _id: { $in: userIds } }).select(
-        "timezone",
+        "timezone focusSeenAt",
       );
       const now = Date.now();
 
@@ -213,6 +222,35 @@ export function startPushReminders() {
             timeZone: tz,
           }).format(new Date()),
         );
+
+        // Odak süresi bitti ama görev hâlâ çalışıyor: uygulama kapalıysa
+        // uygulama içi alarm çalmaz. Telefona bir kez hatırlatma gönder.
+        // Uygulama görünür durumdaysa (son 3 dk içinde sinyal) bildirim yok;
+        // gece saatlerinde de telefonu dürtmeyiz.
+        const focusSeenAt =
+          (user as unknown as { focusSeenAt?: number }).focusSeenAt ?? 0;
+        const appVisible = now - focusSeenAt < 3 * 60_000;
+        if (!appVisible && localHour >= 7 && localHour <= 23) {
+          for (const task of routine.tasks) {
+            if (task.status !== "active" || typeof task.endTime !== "number") {
+              continue;
+            }
+            const late = now - task.endTime;
+            if (late < 2 * 60_000 || late > 5 * 60 * 60_000) continue;
+
+            const key = `${String(user._id)}:overrun:${String((task as { _id?: unknown })._id)}:${task.endTime}`;
+            if (alreadyNotified.has(key)) continue;
+            rememberKey(key);
+
+            await sendPushToUser(String(user._id), {
+              title: "Süre bitti",
+              body: `“${task.title}” ${humanDuration(late)} önce bitmişti, hâlâ açık görünüyor. Tamamlandı mı?`,
+              tag: key,
+              url: "/",
+            });
+          }
+        }
+
         const settings = await MentorSettings.findOne({
           userId: user._id,
         }).select("enabled hours");

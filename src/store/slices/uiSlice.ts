@@ -13,6 +13,16 @@ import type {
 type PreviewSource = "pause" | "flow" | "earlyFinish";
 type AddModalMode = "manual" | "ai";
 
+export interface FocusReclaimEntry {
+  id: string;
+  title: string;
+  gapMs: number;
+}
+
+export interface FocusReclaimNotice {
+  entries: FocusReclaimEntry[];
+}
+
 export type PageName =
   | "today"
   | "mentor"
@@ -66,6 +76,9 @@ interface UIState {
   pendingFlowMode: FlowMode | null;
   pendingEarlyFinishImpact: EarlyFinishImpact | null;
   pendingEarlyFinishMode: EarlyFinishMode | null;
+
+  /** Uygulama kapalıyken açık kalan odak süresi geri alındıysa dolu. */
+  focusReclaim: FocusReclaimNotice | null;
 }
 
 const uiSlice = createSlice({
@@ -97,6 +110,7 @@ const uiSlice = createSlice({
     pendingFlowMode: null,
     pendingEarlyFinishImpact: null,
     pendingEarlyFinishMode: null,
+    focusReclaim: null,
   } as UIState,
   reducers: {
     setActivePage: (state, action: PayloadAction<PageName>) => {
@@ -247,6 +261,14 @@ const uiSlice = createSlice({
         state.isEarlyFinishModalOpen = true;
       }
     },
+
+    // Odak açık kalmış uyarısı
+    setFocusReclaim: (state, action: PayloadAction<FocusReclaimNotice>) => {
+      state.focusReclaim = action.payload;
+    },
+    clearFocusReclaim: (state) => {
+      state.focusReclaim = null;
+    },
   },
 });
 
@@ -277,6 +299,8 @@ export const {
   closePreviewModal,
   confirmAction,
   goBackFromPreview,
+  setFocusReclaim,
+  clearFocusReclaim,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;

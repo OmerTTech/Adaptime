@@ -18,9 +18,11 @@ import { loadAccountabilityState } from "@/store/slices/mentorSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
 import { useAccountabilityEngine } from "@/hooks/useAccountabilityEngine";
+import { useFocusGuard } from "@/hooks/useFocusGuard";
 import OClock from "@/components/clock/OClock";
 import TimelineView from "@/components/timeline/TimelineView";
 import FocusTimer from "@/components/timer/FocusTimer";
+import FocusRecoveryNotice from "@/components/timer/FocusRecoveryNotice";
 import ViewToggle from "@/components/ui/ViewToggle";
 import DayEndTimeBadge from "@/components/ui/DayEndTimeBadge";
 import StreakBadge from "@/components/ui/StreakBadge";
@@ -92,6 +94,8 @@ export default function TodayPage() {
   const isTodayView = selectedDate === getTodayString();
 
   useAccountabilityEngine(token);
+  // Odak sayacı açık kalmışsa süreyi saymaz; süre bitince arka plan bildirimi.
+  useFocusGuard(token);
 
   // Load routine from backend on login
   useEffect(() => {
@@ -317,6 +321,8 @@ export default function TodayPage() {
             </div>
 
             {isTodayView && <TodayOverview />}
+
+            {isTodayView && <FocusRecoveryNotice />}
 
             {isTodayView && (
               <div className="mt-3">

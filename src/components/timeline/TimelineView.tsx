@@ -485,23 +485,20 @@ export default function TimelineView() {
                   <CheckCircle size={16} />
                 </button>
               )}
-              {(task.status === "pending" ||
-                task.status === "skipped" ||
-                task.status === "completed") && (
-                <>
-                  <button
-                    onClick={() => dispatch(openEditModal(task.id))}
-                    className="p-2 rounded-lg bg-surface-hover text-text-muted hover:text-text transition-colors"
-                    title="Düzenle"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <ConfirmDeleteButton
-                    onConfirm={() => dispatch(removeTask(task.id))}
-                    className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
-                    size={16}
-                  />
-                </>
+              {/* Kalem her durumda görünür: aktif/duraklatılmış görev de düzenlenebilir. */}
+              <button
+                onClick={() => dispatch(openEditModal(task.id))}
+                className="p-2 rounded-lg bg-surface-hover text-text-muted hover:text-text transition-colors"
+                title="Düzenle"
+              >
+                <Pencil size={16} />
+              </button>
+              {task.status !== "active" && task.status !== "paused" && (
+                <ConfirmDeleteButton
+                  onConfirm={() => dispatch(removeTask(task.id))}
+                  className="p-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+                  size={16}
+                />
               )}
             </div>
           </div>

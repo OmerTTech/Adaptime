@@ -425,6 +425,22 @@ const routineSlice = createSlice({
       subtask.done = !subtask.done;
       subtask.doneAt = subtask.done ? Date.now() : undefined;
     },
+    renameSubtask: (
+      state,
+      action: PayloadAction<{
+        id: string;
+        subtaskId: string;
+        title: string;
+      }>,
+    ) => {
+      const title = action.payload.title.trim();
+      if (!title) return;
+      const subtask = state.currentRoutine?.tasks
+        .find((t) => t.id === action.payload.id)
+        ?.subtasks?.find((s) => s.id === action.payload.subtaskId);
+      if (!subtask) return;
+      subtask.title = title;
+    },
     updateTask: (
       state,
       action: PayloadAction<{ id: string; updates: Partial<TaskBlock> }>,
@@ -751,6 +767,7 @@ export const duplicateTask = routineSlice.actions.duplicateTask;
 export const removeTask = routineSlice.actions.removeTask;
 export const addSubtasks = routineSlice.actions.addSubtasks;
 export const toggleSubtask = routineSlice.actions.toggleSubtask;
+export const renameSubtask = routineSlice.actions.renameSubtask;
 export const detachSubtask = routineSlice.actions.detachSubtask;
 export const moveTaskAsSubtask = routineSlice.actions.moveTaskAsSubtask;
 export const updateTask = routineSlice.actions.updateTask;

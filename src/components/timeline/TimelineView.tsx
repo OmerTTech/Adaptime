@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { formatTime, formatDuration } from "@/utils";
 import { PRIORITY_LABEL, isScheduled } from "@/types";
@@ -26,6 +26,7 @@ import {
   adjustTaskEnd,
   toggleSubtask,
   detachSubtask,
+  renameSubtask,
 } from "@/store/slices/routineSlice";
 import { openPauseModal, openEditModal } from "@/store/slices/uiSlice";
 import { playSound } from "@/services/sound";
@@ -40,6 +41,34 @@ export default function TimelineView() {
   const [, setTick] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
+  // Alt görev başlığı satır içi düzenlenir (kalem → input).
+  const [editingSub, setEditingSub] = useState<{
+    taskId: string;
+    subId: string;
+    value: string;
+  } | null>(null);
+  // Esc ile iptal edildiyse blur'da kaydetme.
+  const cancelSubEdit = useRef(false);
+
+  const saveSubtaskTitle = () => {
+    if (cancelSubEdit.current) {
+      cancelSubEdit.current = false;
+      setEditingSub(null);
+      return;
+    }
+    if (!editingSub) return;
+    const title = editingSub.value.trim();
+    if (title) {
+      dispatch(
+        renameSubtask({
+          id: editingSub.taskId,
+          subtaskId: editingSub.subId,
+          title,
+        }),
+      );
+    }
+    setEditingSub(null);
+  };
 
   // Tamamlanan planlı görevler listenin en altına iner; kalanlar saat sırasında.
   const scheduledTasks = tasks.filter(isScheduled).sort((a, b) => {
@@ -352,40 +381,76 @@ export default function TimelineView() {
                     >
                       {subtasks.map((sub) => (
                         <li key={sub.id} className="flex items-start gap-1 group/sub">
+                          {editingSub?.taskId === task.id &&
+                          editingSub.subId === sub.id ? (
+                            <input
+                              autoFocus
+                              value={editingSub.value}
+                              onChange={(e) =>
+                                setEditingSub((prev) =>
+                                  prev ? { ...prev, value: e.target.value } : prev,
+                                )
+                              }
+                              onBlur={saveSubtaskTitle}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") e.currentTarget.blur();
+                                if (e.key === "Escape") {
+                                  cancelSubEdit.current = true;
+                                  setEditingSub(null);
+                                }
+                              }}
+                              className="flex-1 min-w-0 px-1.5 py-0.5 rounded bg-background border border-primary/40 text-xs text-text"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => {
+                                dispatch(
+                                  toggleSubtask({
+                                    id: task.id,
+                                    subtaskId: sub.id,
+                                  }),
+                                );
+                                if (!sub.done) playSound("taskComplete");
+                              }}
+                              className="flex flex-1 min-w-0 items-start gap-2 text-left"
+                              title={sub.done ? "Geri al" : "Tamamla"}
+                            >
+                              {sub.done ? (
+                                <CheckCircle
+                                  size={13}
+                                  className="mt-0.5 shrink-0"
+                                  style={{ color: task.color }}
+                                />
+                              ) : (
+                                <Circle
+                                  size={13}
+                                  className="mt-0.5 shrink-0 text-text-muted/60"
+                                />
+                              )}
+                              <span
+                                className={`flex-1 min-w-0 text-xs leading-snug ${
+                                  sub.done
+                                    ? "line-through text-text-muted/60"
+                                    : "text-text-muted"
+                                }`}
+                              >
+                                {sub.title}
+                              </span>
+                            </button>
+                          )}
                           <button
                             onClick={() => {
-                              dispatch(
-                                toggleSubtask({
-                                  id: task.id,
-                                  subtaskId: sub.id,
-                                }),
-                              );
-                              if (!sub.done) playSound("taskComplete");
+                              cancelSubEdit.current = false;
+                              setEditingSub({
+                                taskId: task.id,
+                                subId: sub.id,
+                                value: sub.title,
+                              });
                             }}
-                            className="flex flex-1 min-w-0 items-start gap-2 text-left"
-                            title={sub.done ? "Geri al" : "Tamamla"}
+                            className="mt-0.5 p-1 rounded text-text-muted/60 opacity-70 hover:opacity-100 hover:text-primary hover:bg-primary/10 transition-all shrink-0"
+                            title="Alt görevi düzenle"
                           >
-                            {sub.done ? (
-                              <CheckCircle
-                                size={13}
-                                className="mt-0.5 shrink-0"
-                                style={{ color: task.color }}
-                              />
-                            ) : (
-                              <Circle
-                                size={13}
-                                className="mt-0.5 shrink-0 text-text-muted/60"
-                              />
-                            )}
-                            <span
-                              className={`flex-1 min-w-0 text-xs leading-snug ${
-                                sub.done
-                                  ? "line-through text-text-muted/60"
-                                  : "text-text-muted"
-                              }`}
-                            >
-                              {sub.title}
-                            </span>
+                            <Pencil size={12} />
                           </button>
                           <button
                             onClick={() =>

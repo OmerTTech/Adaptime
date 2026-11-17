@@ -45,25 +45,30 @@ export default function FocusRecoveryNotice() {
       <div className="flex items-start gap-2">
         <AlarmClock size={15} className="text-warning mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-text">Odak açık kalmış</p>
+          <p className="text-xs font-semibold text-text">
+            Odak sayacı açık kalmış
+          </p>
           <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
-            Uygulama kapalıyken geçen{" "}
-            <strong className="text-text">{humanGap(totalGap)}</strong> odak
-            sayılmadı; {titles} duraklatıldı.
+            Uygulama kapalıyken{" "}
+            <strong className="text-text">{humanGap(totalGap)}</strong> geçti. Bu
+            süre {titles} {live.length === 1 ? "görevine" : "görevlerine"} odak
+            olarak yazılmadı ve görev
+            {live.length === 1 ? "" : "ler"} duraklatıldı.
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
               onClick={handleUndo}
               className="px-2.5 py-1 rounded-lg border border-border bg-surface text-[11px] text-text-muted hover:text-text transition-colors"
-              title="Kapalıyken de çalıştıysan bu süreyi odak say"
+              title="Uygulama kapalıyken de çalışmaya devam ettiysen bu süreyi odak süresine ekle"
             >
-              Bu süre sayılsın
+              Kapalıyken de çalıştım, süreyi ekle
             </button>
             <button
               onClick={() => dispatch(clearFocusReclaim())}
               className="px-2.5 py-1 rounded-lg bg-warning/20 text-[11px] font-medium text-warning hover:bg-warning/30 transition-colors"
+              title="Gerçekten ara verdiysen bu süre odak sayılmadan kalsın"
             >
-              Böyle kalsın
+              Çalışmadım, sayılmasın
             </button>
           </div>
         </div>

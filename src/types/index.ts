@@ -29,6 +29,8 @@ export const REPEAT_LABEL: Record<RepeatFrequency, string> = {
 };
 
 export const WEEKDAY_LABEL = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+/** Hafta pazartesi başlar; değerler WEEKDAY_LABEL indeksidir (0 = Pazar). */
+export const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export interface Subtask {
   id: string;

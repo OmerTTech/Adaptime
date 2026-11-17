@@ -175,8 +175,16 @@ export function startPushReminders() {
       const now = Date.now();
 
       for (const user of users) {
+        // Kullanıcının saat dilimi ve "aktif olduğum saatler" ayarı buradan
+        // okunur; gece sessizliği sabit değil, ayarlardaki saatlere uyar.
+        const settings = await MentorSettings.findOne({
+          userId: user._id,
+        }).select("enabled hours timezone");
+
         const tz =
-          (user as unknown as { timezone?: string }).timezone || "Asia/Baku";
+          settings?.timezone ||
+          (user as unknown as { timezone?: string }).timezone ||
+          "Asia/Baku";
         const dateKey = dateKeyInTz(new Date(), tz);
         const routine = await Routine.findOne({
           userId: user._id,
@@ -225,12 +233,17 @@ export function startPushReminders() {
 
         // Odak süresi bitti ama görev hâlâ çalışıyor: uygulama kapalıysa
         // uygulama içi alarm çalmaz. Telefona bir kez hatırlatma gönder.
-        // Uygulama görünür durumdaysa (son 3 dk içinde sinyal) bildirim yok;
-        // gece saatlerinde de telefonu dürtmeyiz.
+        // Uygulama görünür durumdaysa (son 3 dk içinde sinyal) bildirim yok.
+        // Saat aralığı Ayarlar > "Kontrol saatleri"nden gelir; ayar yoksa
+        // makul bir varsayılan (08:00–23:00) kullanılır.
         const focusSeenAt =
           (user as unknown as { focusSeenAt?: number }).focusSeenAt ?? 0;
         const appVisible = now - focusSeenAt < 3 * 60_000;
-        if (!appVisible && localHour >= 7 && localHour <= 23) {
+        const activeHours = settings?.hours;
+        const withinActiveHours = activeHours
+          ? activeHours.includes(localHour)
+          : localHour >= 8 && localHour <= 23;
+        if (!appVisible && withinActiveHours) {
           for (const task of routine.tasks) {
             if (task.status !== "active" || typeof task.endTime !== "number") {
               continue;
@@ -250,10 +263,6 @@ export function startPushReminders() {
             });
           }
         }
-
-        const settings = await MentorSettings.findOne({
-          userId: user._id,
-        }).select("enabled hours");
 
         if (
           settings?.enabled &&

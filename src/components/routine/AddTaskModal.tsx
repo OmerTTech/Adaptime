@@ -10,6 +10,7 @@ import {
   PRIORITY_LABEL,
   REPEAT_LABEL,
   WEEKDAY_LABEL,
+  WEEKDAY_ORDER,
   type RepeatFrequency,
   type TaskCategory,
   type TaskPriority,
@@ -375,7 +376,8 @@ export default function AddTaskModal() {
             </select>
             {repeat === "custom" && (
               <div className="flex flex-wrap gap-1">
-                {WEEKDAY_LABEL.map((label, index) => {
+                {WEEKDAY_ORDER.map((index) => {
+                  const label = WEEKDAY_LABEL[index];
                   const on = repeatDays.includes(index);
                   return (
                     <button

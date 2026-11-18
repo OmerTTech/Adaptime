@@ -60,10 +60,51 @@ export type MentorSituation =
   | "success";
 
 const TONE_HINT: Record<string, string> = {
-  direct: "Kısa, net ve disiplinli konuş. Yumuşatma, mazeret üretme.",
-  balanced: "Net ama destekleyici konuş. Baskı kurmadan yönlendir.",
-  supportive: "Sıcak ve teşvik edici konuş; yine de somut bir sonraki adım ver.",
+  direct: "Net ve disiplinli konuş. Yumuşatma, mazeret üretme; istenen uzunluğu doldur.",
+  balanced: "Net ama destekleyici konuş. Baskı kurmadan yönlendir; istenen uzunluğu doldur.",
+  supportive: "Sıcak ve teşvik edici konuş; yine de somut bir sonraki adım ver ve istenen uzunluğu doldur.",
 };
+
+const SENTENCE_MIN = 1;
+const SENTENCE_MAX = 20;
+
+function clampSentences(value?: number): number {
+  const n = Number.isFinite(value) ? Math.round(value as number) : 8;
+  return Math.min(SENTENCE_MAX, Math.max(SENTENCE_MIN, n));
+}
+
+/**
+ * Kullanıcının cümle ayarını modelin gerçekten uyacağı bir talimata çevirir.
+ * Eskiden yalnızca "en fazla N cümle" yazıyordu; sistem istemi kısalık
+ * istediği için model 2-3 cümlede kalıyordu ve 8-20 ayarı hiç dolmuyordu.
+ */
+function lengthDirective(
+  budget: number,
+  kind: "check" | "reply",
+): string {
+  if (budget <= 1) return "Tam 1 cümle yaz.";
+  if (budget <= 2) return `Tam ${budget} cümle yaz; daha uzun yazma.`;
+  if (budget <= 4) {
+    return `Yaklaşık ${budget} cümle yaz (en fazla ${budget}); tek cümlede kesme.`;
+  }
+  const content =
+    kind === "check"
+      ? "Durumu, gerekçeyi, riski ve somut sonraki adımı ayrı cümlelerde anlat."
+      : "Kullanıcının cevabını, gerekçesini ve bir sonraki adımı ayrı cümlelerde anlat.";
+  return (
+    `Yaklaşık ${budget} cümle yaz (en fazla ${budget}); 4-5 cümlede kesme. ` +
+    `${content} Her cümle yeni bilgi taşısın; aynı fikri tekrar etme, ` +
+    `gereksiz övgü veya genel motivasyon cümlesi ekleme.`
+  );
+}
+
+/**
+ * Cümle sayısına göre çıktı token bütçesi.
+ * Türkçe bir cümle ~25-35 token tutar; 220 token 8 cümleyi bile zor karşılar.
+ */
+function outputTokenBudget(sentences: number): number {
+  return Math.min(1600, 140 + sentences * 70);
+}
 
 function hoursBetween(from: number, to: number): number {
   return Math.max(0, to - from) / 3_600_000;
@@ -187,10 +228,11 @@ function contextPayload(ctx: MentorContext) {
 }
 
 const MENTOR_SYSTEM = `Sen Adaptime'ın kişisel hesap verebilirlik mentorüsün. Kullanıcıyla Türkçe konuşursun.
-Tarzın: kısa, net, stratejik ve kararlı. Gereksiz motivasyon konuşması yapmazsın.
+Tarzın: net, stratejik ve kararlı. Gereksiz motivasyon konuşması yapmazsın ama istemde verilen cümle hedefini doldurursun; hedef yüksekse yüzeysel geçmez, ayrıntı verirsin.
 Ertelemeyi fark eder, doğrudan ama suçluluk hissettirmeden söylersin.
 Kullanıcının yorgunluğunu ve dinlenme durumunu dikkate alırsın.
-Mesaj uzunluğu istemde verilen cümle sınırına uyar. Markdown, emoji, başlık, madde işareti kullanma.
+Uzunluk kuralı: istemdeki cümle hedefi bağlayıcıdır. Hedef 5 cümle veya üzeriyse durumu, gerekçeyi ve planı ayrı ayrı anlat; hedef kısaysa tek cümleye kadar in.
+Markdown, emoji, başlık, madde işareti ve numaralı liste kullanma. Gerekirse paragrafları satır sonuyla ayır.
 Sadece mesaj metnini döndür; açıklama veya JSON yazma.
 Verilmeyen bir şeyi olmuş gibi anlatma; sadece bağlamdaki verilere dayan.
 Kullanıcıya görev tamamlama onayı sormadan "tamamladın" deme.`;
@@ -203,13 +245,16 @@ export async function composeCheckMessage(
 ): Promise<{ message: string; source: "ai" | "fallback"; situation: MentorSituation }> {
   const situation = detectSituation(ctx);
   const fallback = fallbackCheckMessage(ctx, situation);
+  const budget = clampSentences(ctx.maxSentences);
 
   const prompt = `Şu anki durum (JSON):
 ${JSON.stringify(contextPayload(ctx))}
 
 Bu bir "${situation}" durumundaki saatlik hesap verebilirlik kontrolü.
 Kullanıcıya görevini hatırlatan, gerçek ilerlemeyi soran ve somut bir sonraki küçük adım veren bir mesaj yaz.
-Mesaj en az 1, en fazla ${Math.min(20, Math.max(1, ctx.maxSentences ?? 8))} cümle olabilir; konuşma uzunluğunu kullanıcının ayarına göre seç.
+
+Uzunluk: ${lengthDirective(budget, "check")}
+Kullanıcı bu uzunluğu kendisi seçti; kısa ve öz olma içgüdüsüne kapılıp cümleleri yarıda kesme.
 Görev çokluğuna, öncelik seviyelerine ve deadline'lara göre karar ver; yetişmesi gereken iş varsa zaman önerisi ver, uygunsa tek cümlelik kısa bir motivasyon ekle.
 Daha önce söylenen mesajı birebir tekrarlama.`;
 
@@ -218,7 +263,7 @@ Daha önce söylenen mesajı birebir tekrarlama.`;
       prompt,
       system: `${MENTOR_SYSTEM}\n${TONE_HINT[ctx.tone] ?? TONE_HINT.direct}`,
       temperature: 0.7,
-      maxOutputTokens: 220,
+      maxOutputTokens: outputTokenBudget(budget),
     });
     return { message: text.replace(/^["']|["']$/g, "").trim(), source: "ai", situation };
   } catch (error) {
@@ -262,6 +307,10 @@ export async function composeReply(
   minutes = 15,
 ): Promise<{ message: string; source: "ai" | "fallback" }> {
   const fallback = ACTION_FALLBACK[action](taskTitle, minutes);
+  // Yanıtlar kontrol mesajından kısa kalır ama ayar yüksekse yine de
+  // tek satırda bırakmayız: 20 → 9 cümleye kadar çıkabilir.
+  const budget = clampSentences(ctx.maxSentences);
+  const replySentences = Math.max(1, Math.min(budget, 2 + Math.ceil(budget / 3)));
 
   const prompt = `Kullanıcı az önce şu cevabı verdi:
 action="${action}", görev="${taskTitle}", süre=${minutes} dakika, not="${note ?? ""}"
@@ -269,7 +318,8 @@ action="${action}", görev="${taskTitle}", süre=${minutes} dakika, not="${note 
 Bağlam (JSON):
 ${JSON.stringify(contextPayload(ctx))}
 
-Bu cevaba verilecek 1-2 cümlelik mentor yanıtını yaz.
+Bu cevaba verilecek mentor yanıtını yaz.
+Uzunluk: ${lengthDirective(replySentences, "reply")}
 Görev tamamlanmadıysa tamamlanmış gibi konuşma. Yeni bir görev başlatma; aktif görevi koru.`;
 
   try {
@@ -277,7 +327,7 @@ Görev tamamlanmadıysa tamamlanmış gibi konuşma. Yeni bir görev başlatma; 
       prompt,
       system: `${MENTOR_SYSTEM}\n${TONE_HINT[ctx.tone] ?? TONE_HINT.direct}`,
       temperature: 0.65,
-      maxOutputTokens: 160,
+      maxOutputTokens: outputTokenBudget(replySentences),
     });
     return { message: text.replace(/^["']|["']$/g, "").trim(), source: "ai" };
   } catch {

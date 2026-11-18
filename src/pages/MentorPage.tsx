@@ -232,7 +232,7 @@ export default function MentorPage() {
                   {(check.generatedBy ?? check.source) === "ai" ? "AI" : "kural"}
                 </span>
               </div>
-              <p className="text-sm text-text leading-relaxed mb-3">
+              <p className="text-sm text-text leading-relaxed whitespace-pre-line mb-3">
                 {check.message}
               </p>
               <CheckActions check={check} />
@@ -541,7 +541,7 @@ export default function MentorPage() {
                   </span>
                   {check.response && <span>· {check.response}</span>}
                 </div>
-                <p className="text-xs text-text mt-0.5">{check.message}</p>
+                <p className="text-xs text-text mt-0.5 whitespace-pre-line">{check.message}</p>
                 {check.responseNote && (
                   <p className="text-[11px] text-text-muted mt-0.5">
                     Notun: {check.responseNote}

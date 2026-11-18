@@ -106,7 +106,7 @@ export default function MentorCard() {
                 {pending.taskTitle ? pending.taskTitle : "Saatlik kontrol"}
               </span>
             </div>
-            <p className="text-sm text-text leading-relaxed">{pending.message}</p>
+            <p className="text-sm text-text leading-relaxed whitespace-pre-line">{pending.message}</p>
           </div>
           <CheckActions check={pending} />
         </div>
@@ -140,7 +140,7 @@ export default function MentorCard() {
           <p className="text-[10px] uppercase tracking-wide text-success mb-1">
             Mentor yanıtı
           </p>
-          <p className="text-sm text-text">{reply.message}</p>
+          <p className="text-sm text-text leading-relaxed whitespace-pre-line">{reply.message}</p>
         </div>
       )}
 

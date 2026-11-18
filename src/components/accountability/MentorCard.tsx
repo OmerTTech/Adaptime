@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { requestMentorCheck } from "@/store/slices/mentorSlice";
+import {
+  loadAccountabilityState,
+  requestMentorCheck,
+} from "@/store/slices/mentorSlice";
 import { setActivePage } from "@/store/slices/uiSlice";
 import { formatClock, formatRelative } from "@/utils";
 import CheckActions from "./CheckActions";
@@ -26,7 +29,10 @@ export default function MentorCard() {
   const settings = useAppSelector((s) => s.mentor.settings);
   const [requesting, setRequesting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [checkNotice, setCheckNotice] = useState<string | null>(null);
+  const [checkNotice, setCheckNotice] = useState<{
+    text: string;
+    tone: "ok" | "warn";
+  } | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -40,12 +46,20 @@ export default function MentorCard() {
     setCheckNotice(null);
     try {
       const result = await dispatch(requestMentorCheck(token)).unwrap();
+      // Sunucudaki güncel listeyi çek: eski mesaj ekranda kalmasın.
+      dispatch(loadAccountabilityState(token));
       if (result.throttled) {
-        setCheckNotice(
-          `Yeni mesaj için ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn bekle.`,
-        );
+        setCheckNotice({
+          text: `Çok hızlı bastın; ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn sonra tekrar dene.`,
+          tone: "warn",
+        });
       } else if (result.check?.generatedBy !== "ai") {
-        setCheckNotice("AI yanıt veremedi; kural tabanlı mesaj üretildi.");
+        setCheckNotice({
+          text: "AI yanıt veremedi; kural tabanlı mesaj üretildi. Tekrar deneyebilirsin.",
+          tone: "warn",
+        });
+      } else {
+        setCheckNotice({ text: "Yeni AI mesajı üretildi.", tone: "ok" });
       }
     } catch {
       /* mentor.error */
@@ -134,8 +148,19 @@ export default function MentorCard() {
               </div>
             </div>
             <p className="text-sm text-text leading-relaxed whitespace-pre-line">{pending.message}</p>
+            {requesting && (
+              <p className="text-[10px] text-text-muted mt-1.5">
+                AI yeni mesajı yazıyor…
+              </p>
+            )}
             {checkNotice && (
-              <p className="text-[10px] text-warning mt-1.5">{checkNotice}</p>
+              <p
+                className={`text-[10px] mt-1.5 ${
+                  checkNotice.tone === "ok" ? "text-success" : "text-warning"
+                }`}
+              >
+                {checkNotice.text}
+              </p>
             )}
           </div>
           <CheckActions check={pending} />

@@ -155,8 +155,8 @@ router.get("/state", authMiddleware, async (req: AuthRequest, res) => {
 
 /* -------------------------- manuel kontrol ----------------------- */
 
-/** Aynı saniyede çift tıklamayı engeller; bilinçli "yeniden üret" hemen çalışır. */
-const MANUAL_COOLDOWN_MS = 3_000;
+/** Aynı saniyedeki çift tıklamayı engeller; bilinçli "yeniden üret" ~1 sn sonra çalışır. */
+const MANUAL_COOLDOWN_MS = 1_000;
 
 router.post("/check", authMiddleware, async (req: AuthRequest, res) => {
   try {

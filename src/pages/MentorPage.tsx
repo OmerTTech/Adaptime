@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  clearFirstSteps,
+  loadAccountabilityState,
   loadDailyLaunch,
   requestFirstSteps,
   requestMentorCheck,
-  clearFirstSteps,
 } from "@/store/slices/mentorSlice";
 import { addSubtasks, updateTask } from "@/store/slices/routineSlice";
 import CheckActions from "@/components/accountability/CheckActions";
@@ -61,7 +62,10 @@ export default function MentorPage() {
   const fallbackTask = useMemo(() => pickFocusTask(tasks), [tasks]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [requesting, setRequesting] = useState(false);
-  const [checkNotice, setCheckNotice] = useState<string | null>(null);
+  const [checkNotice, setCheckNotice] = useState<{
+    text: string;
+    tone: "ok" | "warn";
+  } | null>(null);
   const [minutes, setMinutes] = useState(5);
   const [pickedSteps, setPickedSteps] = useState<number[]>([]);
   const [stepsNote, setStepsNote] = useState<string | null>(null);
@@ -100,12 +104,20 @@ export default function MentorPage() {
     setCheckNotice(null);
     try {
       const result = await dispatch(requestMentorCheck(token)).unwrap();
+      // Sunucudaki güncel listeyi çek: eski mesaj ekranda kalmasın.
+      dispatch(loadAccountabilityState(token));
       if (result.throttled) {
-        setCheckNotice(
-          `Yeni mesaj için ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn bekle.`,
-        );
+        setCheckNotice({
+          text: `Çok hızlı bastın; ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn sonra tekrar dene.`,
+          tone: "warn",
+        });
       } else if (result.check?.generatedBy !== "ai") {
-        setCheckNotice("AI yanıt veremedi; kural tabanlı mesaj üretildi.");
+        setCheckNotice({
+          text: "AI yanıt veremedi; kural tabanlı mesaj üretildi. Tekrar deneyebilirsin.",
+          tone: "warn",
+        });
+      } else {
+        setCheckNotice({ text: "Yeni AI mesajı üretildi.", tone: "ok" });
       }
     } catch {
       /* mentor.error */
@@ -221,8 +233,14 @@ export default function MentorPage() {
       )}
 
       {checkNotice && (
-        <div className="text-[11px] text-warning bg-warning/10 border border-warning/25 rounded-xl px-3 py-2">
-          {checkNotice}
+        <div
+          className={`text-[11px] border rounded-xl px-3 py-2 ${
+            checkNotice.tone === "ok"
+              ? "text-success bg-success/10 border-success/25"
+              : "text-warning bg-warning/10 border-warning/25"
+          }`}
+        >
+          {checkNotice.text}
         </div>
       )}
 
@@ -270,6 +288,11 @@ export default function MentorPage() {
               <p className="text-sm text-text leading-relaxed whitespace-pre-line mb-3">
                 {check.message}
               </p>
+              {requesting && (
+                <p className="text-[10px] text-text-muted mb-2">
+                  AI yeni mesajı yazıyor…
+                </p>
+              )}
               <CheckActions check={check} />
             </div>
           ))}

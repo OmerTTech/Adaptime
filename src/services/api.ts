@@ -24,6 +24,9 @@ export async function apiFetch<T>(
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    // Durum sorguları tarayıcı önbelleğinden gelmesin; yeni mentor mesajı
+    // üretildiğinde ekran hemen güncellensin.
+    cache: method === "GET" ? "no-store" : undefined,
   });
 
   if (!res.ok) {

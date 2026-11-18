@@ -155,6 +155,9 @@ router.get("/state", authMiddleware, async (req: AuthRequest, res) => {
 
 /* -------------------------- manuel kontrol ----------------------- */
 
+/** Aynı saniyede çift tıklamayı engeller; bilinçli "yeniden üret" hemen çalışır. */
+const MANUAL_COOLDOWN_MS = 3_000;
+
 router.post("/check", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const userId = String(req.userId);
@@ -162,24 +165,36 @@ router.post("/check", authMiddleware, async (req: AuthRequest, res) => {
     const now = Date.now();
     const dateKey = currentDateKey(settings.timezone);
 
-    // Anti-spam: 5 dakikada bir manuel kontrol.
     const lastManual = await MentorCheck.findOne({ userId, source: "manual" }).sort({
       createdAt: -1,
     });
-    if (lastManual && now - lastManual.createdAt.getTime() < 5 * 60_000) {
-      return res.json({ check: lastManual, throttled: true });
+    const elapsed = lastManual ? now - lastManual.createdAt.getTime() : Number.POSITIVE_INFINITY;
+    if (lastManual && elapsed < MANUAL_COOLDOWN_MS) {
+      return res.json({
+        check: lastManual,
+        throttled: true,
+        retryAfterMs: Math.max(0, MANUAL_COOLDOWN_MS - elapsed),
+      });
     }
+
+    // Yeniden üret, ekrandaki eski bekleyen sorunun yerini alır; böylece
+    // arka arkaya basınca kartlar birikmez.
+    await MentorCheck.updateMany(
+      { userId, status: "pending" },
+      { $set: { status: "expired" } },
+    );
 
     const check = await createCheck({
       userId,
       settings,
       dateKey,
       slot: "manual",
-      dedupeKey: `m:${dateKey}:${Math.floor(now / (5 * 60_000))}`,
+      // Her istek benzersiz olmalı; aksi halde createCheck eski mesajı döndürür.
+      dedupeKey: `m:${dateKey}:${now}`,
       source: "manual",
     });
 
-    res.json({ check, throttled: false });
+    res.json({ check, throttled: false, retryAfterMs: 0 });
   } catch (error) {
     console.error("Manual check error:", error);
     res.status(500).json({ error: "Kontrol oluşturulamadı" });

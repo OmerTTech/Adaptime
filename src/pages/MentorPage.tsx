@@ -61,6 +61,7 @@ export default function MentorPage() {
   const fallbackTask = useMemo(() => pickFocusTask(tasks), [tasks]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [requesting, setRequesting] = useState(false);
+  const [checkNotice, setCheckNotice] = useState<string | null>(null);
   const [minutes, setMinutes] = useState(5);
   const [pickedSteps, setPickedSteps] = useState<number[]>([]);
   const [stepsNote, setStepsNote] = useState<string | null>(null);
@@ -96,8 +97,16 @@ export default function MentorPage() {
   const handleCheckNow = async () => {
     if (!token || requesting) return;
     setRequesting(true);
+    setCheckNotice(null);
     try {
-      await dispatch(requestMentorCheck(token)).unwrap();
+      const result = await dispatch(requestMentorCheck(token)).unwrap();
+      if (result.throttled) {
+        setCheckNotice(
+          `Yeni mesaj için ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn bekle.`,
+        );
+      } else if (result.check?.generatedBy !== "ai") {
+        setCheckNotice("AI yanıt veremedi; kural tabanlı mesaj üretildi.");
+      }
     } catch {
       /* mentor.error */
     } finally {
@@ -211,6 +220,12 @@ export default function MentorPage() {
         </div>
       )}
 
+      {checkNotice && (
+        <div className="text-[11px] text-warning bg-warning/10 border border-warning/25 rounded-xl px-3 py-2">
+          {checkNotice}
+        </div>
+      )}
+
       {/* Bekleyen kontroller */}
       {pending.length > 0 ? (
         <div className="space-y-3">
@@ -219,18 +234,38 @@ export default function MentorPage() {
               key={check._id}
               className="rounded-2xl border border-primary/25 bg-primary/[0.04] p-4"
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] uppercase tracking-wide text-text-muted flex items-center gap-1.5">
-                  <Sparkles size={11} className="text-warning" />
-                  {check.taskTitle ?? "Mentor kontrolü"}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-[10px] uppercase tracking-wide text-text-muted flex items-center gap-1.5 min-w-0">
+                  <Sparkles size={11} className="text-warning shrink-0" />
+                  <span className="truncate">
+                    {check.taskTitle ?? "Mentor kontrolü"}
+                  </span>
                 </span>
-                <span className="text-[10px] text-text-muted">
-                  {check.createdAt
-                    ? formatClock(new Date(check.createdAt).getTime())
-                    : ""}
-                  {" · "}
-                  {(check.generatedBy ?? check.source) === "ai" ? "AI" : "kural"}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-text-muted">
+                    {check.createdAt
+                      ? formatClock(new Date(check.createdAt).getTime())
+                      : ""}
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border text-text-muted">
+                    {(check.generatedBy ?? check.source) === "ai"
+                      ? "AI"
+                      : "kural"}
+                  </span>
+                  <button
+                    onClick={handleCheckNow}
+                    disabled={!token || requesting}
+                    className="flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
+                    title="Yeni bir mentor mesajı üret (eski bekleyen mesajın yerini alır)"
+                  >
+                    {requesting ? (
+                      <Loader2 size={10} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={10} />
+                    )}
+                    Yeniden üret
+                  </button>
+                </div>
               </div>
               <p className="text-sm text-text leading-relaxed whitespace-pre-line mb-3">
                 {check.message}

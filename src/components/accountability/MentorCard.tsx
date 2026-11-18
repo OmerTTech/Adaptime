@@ -26,6 +26,7 @@ export default function MentorCard() {
   const settings = useAppSelector((s) => s.mentor.settings);
   const [requesting, setRequesting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [checkNotice, setCheckNotice] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -36,8 +37,16 @@ export default function MentorCard() {
   const handleCheckNow = async () => {
     if (!token || requesting) return;
     setRequesting(true);
+    setCheckNotice(null);
     try {
-      await dispatch(requestMentorCheck(token)).unwrap();
+      const result = await dispatch(requestMentorCheck(token)).unwrap();
+      if (result.throttled) {
+        setCheckNotice(
+          `Yeni mesaj için ${Math.max(1, Math.ceil((result.retryAfterMs ?? 0) / 1000))} sn bekle.`,
+        );
+      } else if (result.check?.generatedBy !== "ai") {
+        setCheckNotice("AI yanıt veremedi; kural tabanlı mesaj üretildi.");
+      }
     } catch {
       /* mentor.error */
     } finally {
@@ -101,12 +110,33 @@ export default function MentorCard() {
         <div className="mt-3 space-y-2.5">
           <div className="rounded-xl bg-surface border border-border p-3">
             <div className="flex items-center gap-1.5 mb-1">
-              <Sparkles size={11} className="text-warning" />
-              <span className="text-[10px] uppercase tracking-wide text-text-muted">
+              <Sparkles size={11} className="text-warning shrink-0" />
+              <span className="text-[10px] uppercase tracking-wide text-text-muted truncate">
                 {pending.taskTitle ? pending.taskTitle : "Saatlik kontrol"}
               </span>
+              <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border text-text-muted">
+                  {pending.generatedBy === "ai" ? "AI" : "kural"}
+                </span>
+                <button
+                  onClick={handleCheckNow}
+                  disabled={!token || requesting}
+                  className="flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
+                  title="Yeni bir mentor mesajı üret"
+                >
+                  {requesting ? (
+                    <Loader2 size={10} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={10} />
+                  )}
+                  Yeniden üret
+                </button>
+              </div>
             </div>
             <p className="text-sm text-text leading-relaxed whitespace-pre-line">{pending.message}</p>
+            {checkNotice && (
+              <p className="text-[10px] text-warning mt-1.5">{checkNotice}</p>
+            )}
           </div>
           <CheckActions check={pending} />
         </div>

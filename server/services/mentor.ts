@@ -146,21 +146,36 @@ export function detectSituation(ctx: MentorContext): MentorSituation {
   return "plan_today";
 }
 
-/** AI çalışmadığında kullanılacak, duruma uygun kural tabanlı mesaj. */
-export function fallbackCheckMessage(
+function timeInZone(ts: number, timeZone: string): string {
+  return new Date(ts).toLocaleTimeString("tr-TR", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function dateTimeInZone(ts: number, timeZone: string): string {
+  return `${new Date(ts).toLocaleDateString("tr-TR", {
+    timeZone,
+    day: "2-digit",
+    month: "short",
+  })} ${timeInZone(ts, timeZone)}`;
+}
+
+function sentenceCount(text: string): number {
+  return text.split(/[.!?…]+/).filter((s) => s.trim().length > 0).length;
+}
+
+/** Kural tabanlı mesajın çekirdeği (durum başına 2-3 cümle). */
+function baseFallbackMessage(
   ctx: MentorContext,
-  situation: MentorSituation = detectSituation(ctx),
+  situation: MentorSituation,
 ): string {
   const task = firstPending(ctx);
   const title = task?.title ?? "görevin";
   const hhmm = (ts?: number | null) =>
-    ts
-      ? new Date(ts).toLocaleTimeString("tr-TR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        })
-      : "";
+    ts ? timeInZone(ts, ctx.timezone) : "";
 
   switch (situation) {
     case "resting": {
@@ -204,26 +219,103 @@ export function fallbackCheckMessage(
   }
 }
 
+/**
+ * Kural tabanlı mesajı da kullanıcının cümle ayarına yaklaştırır.
+ * AI kapalıyken 20 cümle seçen biri 2 cümle görmesin.
+ */
+function fallbackDetails(
+  ctx: MentorContext,
+  situation: MentorSituation,
+): string[] {
+  const out: string[] = [];
+  const next = firstPending(ctx);
+  const time = (ts?: number | null) => (ts ? timeInZone(ts, ctx.timezone) : "");
+
+  if (ctx.tasks.length === 0) {
+    out.push("Bugünün en önemli tek işini seç.");
+    out.push("Görevi 5 dakikada başlanabilecek kadar küçük yaz.");
+    out.push("Başlamak için bir saat aralığı belirle.");
+    return out;
+  }
+
+  if (ctx.overdue.length > 1) {
+    const names = ctx.overdue.slice(0, 3).map((t) => `"${t.title}"`).join(", ");
+    out.push(`Süresi geçen ${ctx.overdue.length} görev var: ${names}.`);
+  }
+
+  if (next?.endTime) {
+    const left = Math.round((next.endTime - ctx.now) / 60_000);
+    out.push(
+      left > 0
+        ? `"${next.title}" için planlanan bitiş ${time(next.endTime)}; ${left} dakika kaldı.`
+        : `"${next.title}" için planlanan bitiş ${time(next.endTime)} geçti.`,
+    );
+  }
+
+  if (next?.deadline) {
+    out.push(`Son teslim ${dateTimeInZone(next.deadline, ctx.timezone)}.`);
+  }
+
+  if (situation !== "success" && ctx.plannedCount > 0) {
+    out.push(`Bugün ${ctx.completedCount}/${ctx.plannedCount} görev tamamlandı.`);
+  }
+
+  if (next?.estimatedMinutes && situation !== "deadline_today") {
+    out.push(`"${next.title}" için tahmini süre ${next.estimatedMinutes} dakika.`);
+  }
+
+  if (next?.firstAction) {
+    const action = next.firstAction.trim().replace(/\.+$/, "");
+    out.push(`İlk adım: ${action}.`);
+  }
+
+  const others = ctx.tasks.filter(
+    (t) =>
+      t.id !== next?.id &&
+      (t.status === "pending" || t.status === "active" || t.status === "paused"),
+  );
+  for (const t of others.slice(0, 5)) {
+    const bits: string[] = [];
+    if (t.startTime) bits.push(`${time(t.startTime)}'de başlıyor`);
+    if (t.endTime) bits.push(`${time(t.endTime)}'de bitiyor`);
+    if (t.estimatedMinutes) bits.push(`tahmini ${t.estimatedMinutes} dakika`);
+    if (bits.length > 0) out.push(`"${t.title}" ${bits.join(", ")}.`);
+  }
+
+  return out;
+}
+
+/** Uzun ayarlarda kural tabanlı mesajı doldurmak için genel ama işe yarar cümleler. */
+const FALLBACK_TIPS = [
+  "Şu an sadece seçtiğin göreve odaklan; diğerlerini sıraya koy.",
+  "Telefonu sessize alıp bildirimleri kapat; ilk 5 dakika bölünmesin.",
+  "Görevi bitirmek için gereken en küçük adımı şimdi yap.",
+  "Bir sonraki kontrole kadar ilerlemeyi burada bildir; böylece planı birlikte güncelleyelim.",
+];
+
+/** AI çalışmadığında kullanılacak, duruma uygun kural tabanlı mesaj. */
+export function fallbackCheckMessage(
+  ctx: MentorContext,
+  situation: MentorSituation = detectSituation(ctx),
+): string {
+  const base = baseFallbackMessage(ctx, situation);
+  const budget = clampSentences(ctx.maxSentences);
+  let remaining = budget - sentenceCount(base);
+  if (remaining <= 0) return base;
+  const details = fallbackDetails(ctx, situation).slice(0, remaining);
+  remaining -= details.length;
+  const tips = remaining > 0 ? FALLBACK_TIPS.slice(0, remaining) : [];
+  const parts = [base, ...details, ...tips].filter((p) => p.length > 0);
+  return parts.join(" ");
+}
+
 function contextPayload(ctx: MentorContext) {
   // Modele ham epoch değerleri vermek yanlış saat/gecikme yorumlarına yol
   // açıyordu. Saatleri kullanıcının diliminde okunabilir biçimde gönder.
   const timeLabel = (ts?: number | null) =>
-    ts
-      ? new Date(ts).toLocaleTimeString("tr-TR", {
-          timeZone: ctx.timezone,
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        })
-      : null;
+    ts ? timeInZone(ts, ctx.timezone) : null;
   const dateTimeLabel = (ts?: number | null) =>
-    ts
-      ? `${new Date(ts).toLocaleDateString("tr-TR", {
-          timeZone: ctx.timezone,
-          day: "2-digit",
-          month: "short",
-        })} ${timeLabel(ts)}`
-      : null;
+    ts ? dateTimeInZone(ts, ctx.timezone) : null;
   const minutesUntil = (ts?: number | null) =>
     ts ? Math.round((ts - ctx.now) / 60_000) : null;
 

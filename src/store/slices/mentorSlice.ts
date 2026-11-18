@@ -227,10 +227,16 @@ const mentorSlice = createSlice({
       })
       .addCase(requestMentorCheck.fulfilled, (state, action) => {
         const check = action.payload.check;
-        if (check && !state.pending.some((c) => c._id === check._id)) {
-          state.pending = [check, ...state.pending];
+        if (!check) return;
+        if (action.payload.throttled) {
+          if (!state.pending.some((c) => c._id === check._id)) {
+            state.pending = [check, ...state.pending];
+          }
+        } else {
+          // Sunucu eski bekleyenleri kapattı: yalnızca taze kontrol kalsın.
+          state.pending = [check];
         }
-        if (check && !state.checks.some((c) => c._id === check._id)) {
+        if (!state.checks.some((c) => c._id === check._id)) {
           state.checks = [check, ...state.checks];
         }
       })

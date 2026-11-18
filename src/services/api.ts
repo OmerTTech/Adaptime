@@ -358,10 +358,11 @@ export const accountabilityApi = {
     }>("/api/accountability/settings", { method: "PUT", body: patch, token }),
 
   requestCheck: (token: string) =>
-    apiFetch<{ check: import("@/types").MentorCheck; throttled: boolean }>(
-      "/api/accountability/check",
-      { method: "POST", token },
-    ),
+    apiFetch<{
+      check: import("@/types").MentorCheck;
+      throttled: boolean;
+      retryAfterMs?: number;
+    }>("/api/accountability/check", { method: "POST", token }),
 
   respond: (
     data: {

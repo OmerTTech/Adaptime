@@ -127,6 +127,8 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     mongo: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    // Render otomatik olarak doldurur; hangi sürümün yayında olduğunu görmek için.
+    commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
   });
 });
 

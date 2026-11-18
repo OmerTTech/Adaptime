@@ -91,8 +91,15 @@ function lengthDirective(
     kind === "check"
       ? "Durumu, gerekçeyi, riski ve somut sonraki adımı ayrı cümlelerde anlat."
       : "Kullanıcının cevabını, gerekçesini ve bir sonraki adımı ayrı cümlelerde anlat.";
+  // "En fazla N" tek başına modeli kısa tutmaya itiyor. Alt sınır koyunca
+  // kullanıcının seçtiği uzunluk gerçekten doluyor, üst sınır yine korunuyor.
+  const min = Math.max(3, Math.ceil(budget * 0.7));
+  const paragraphs =
+    budget >= 10
+      ? " Mesajı 2-4 kısa paragrafa böl; paragrafları satır sonuyla ayır, madde işareti kullanma."
+      : "";
   return (
-    `Yaklaşık ${budget} cümle yaz (en fazla ${budget}); 4-5 cümlede kesme. ` +
+    `En az ${min}, en fazla ${budget} cümle yaz.${paragraphs} ` +
     `${content} Her cümle yeni bilgi taşısın; aynı fikri tekrar etme, ` +
     `gereksiz övgü veya genel motivasyon cümlesi ekleme.`
   );
@@ -198,15 +205,42 @@ export function fallbackCheckMessage(
 }
 
 function contextPayload(ctx: MentorContext) {
+  // Modele ham epoch değerleri vermek yanlış saat/gecikme yorumlarına yol
+  // açıyordu. Saatleri kullanıcının diliminde okunabilir biçimde gönder.
+  const timeLabel = (ts?: number | null) =>
+    ts
+      ? new Date(ts).toLocaleTimeString("tr-TR", {
+          timeZone: ctx.timezone,
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })
+      : null;
+  const dateTimeLabel = (ts?: number | null) =>
+    ts
+      ? `${new Date(ts).toLocaleDateString("tr-TR", {
+          timeZone: ctx.timezone,
+          day: "2-digit",
+          month: "short",
+        })} ${timeLabel(ts)}`
+      : null;
+  const minutesUntil = (ts?: number | null) =>
+    ts ? Math.round((ts - ctx.now) / 60_000) : null;
+
   const trim = (t: MentorTask) => ({
     title: t.title,
     status: t.status,
     priority: t.priority ?? "medium",
-    deadline: t.deadline ?? null,
-    plannedEnd: t.endTime ?? null,
-    estimatedMinutes: t.estimatedMinutes ?? null,
-    delayCount: t.delayCount ?? 0,
     category: t.category ?? null,
+    startTime: timeLabel(t.startTime),
+    endTime: timeLabel(t.endTime),
+    deadline: t.deadline ? dateTimeLabel(t.deadline) : null,
+    estimatedMinutes: t.estimatedMinutes ?? null,
+    /** Negatif değer: süre/bitiş geçmiş demektir. */
+    minutesUntilEnd: minutesUntil(t.endTime),
+    minutesUntilDeadline: minutesUntil(t.deadline),
+    delayCount: t.delayCount ?? 0,
+    firstAction: t.firstAction ?? null,
   });
 
   return {
@@ -219,7 +253,7 @@ function contextPayload(ctx: MentorContext) {
     lastMentorMessage: ctx.lastMessage ?? null,
     lastUserResponse: ctx.lastResponse ?? null,
     lastReportedActivity: ctx.lastActivityKind ?? null,
-    restingUntil: ctx.restUntil ?? null,
+    restingUntil: ctx.restUntil ? timeLabel(ctx.restUntil) : null,
     maxSentences: ctx.maxSentences ?? 8,
     plannedCount: ctx.plannedCount,
     completedCount: ctx.completedCount,
@@ -255,6 +289,8 @@ Kullanıcıya görevini hatırlatan, gerçek ilerlemeyi soran ve somut bir sonra
 
 Uzunluk: ${lengthDirective(budget, "check")}
 Kullanıcı bu uzunluğu kendisi seçti; kısa ve öz olma içgüdüsüne kapılıp cümleleri yarıda kesme.
+Cümleleri doldurmak için genel motivasyon veya aynı fikri tekrarlayan cümle yazma; her cümle bağlamdaki farklı bir bilgiyi (görev adı, saat, kalan süre, öncelik, risk, somut adım) kullansın.
+Bağlamda olmayan saat, süre veya bitiş bilgisi uydurma; "minutesUntilEnd" negatifse süre geçmiş, pozitifse kalan dakikadır.
 Görev çokluğuna, öncelik seviyelerine ve deadline'lara göre karar ver; yetişmesi gereken iş varsa zaman önerisi ver, uygunsa tek cümlelik kısa bir motivasyon ekle.
 Daha önce söylenen mesajı birebir tekrarlama.`;
 

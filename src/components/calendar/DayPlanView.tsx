@@ -5,6 +5,7 @@ import { loadTodayRoutine } from "@/store/slices/routineSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
 import { getRandomColor, getTodayString, timeToTimestamp } from "@/utils";
+import { PRIORITY_ORDER, type TaskPriority } from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ interface DayTask {
   endTime: number | null;
   estimatedMinutes: number | null;
   repeat: string | null;
+  priority?: string;
   sourceDate?: string;
   virtual: boolean;
 }
@@ -116,7 +118,17 @@ export default function DayPlanView() {
   const scheduled = tasks
     .filter((t) => t.startTime)
     .sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0));
-  const todos = tasks.filter((t) => !t.startTime);
+  const todos = tasks
+    .filter((t) => !t.startTime)
+    // Tamamlananlar en altta; açık görevler öncelik sırasına göre.
+    .sort((a, b) => {
+      const doneA = a.status === "completed" ? 1 : 0;
+      const doneB = b.status === "completed" ? 1 : 0;
+      if (doneA !== doneB) return doneA - doneB;
+      const pa = PRIORITY_ORDER[(a.priority as TaskPriority) ?? "medium"] ?? 2;
+      const pb = PRIORITY_ORDER[(b.priority as TaskPriority) ?? "medium"] ?? 2;
+      return pa - pb;
+    });
 
   const toggle = async (task: DayTask) => {
     if (!token || task.virtual) return;
@@ -333,7 +345,7 @@ export default function DayPlanView() {
             {busy === task.id ? (
               <Loader2 size={13} className="animate-spin" />
             ) : (
-              <CheckCircle2 size={13} />
+              <CheckCircle2 size={16} />
             )}
           </button>
           <span

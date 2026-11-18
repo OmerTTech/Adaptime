@@ -364,6 +364,7 @@ Ertelemeyi fark eder, doğrudan ama suçluluk hissettirmeden söylersin.
 Kullanıcının yorgunluğunu ve dinlenme durumunu dikkate alırsın.
 Uzunluk kuralı: istemdeki cümle hedefi bağlayıcıdır. Hedef 5 cümle veya üzeriyse durumu, gerekçeyi ve planı ayrı ayrı anlat; hedef kısaysa tek cümleye kadar in.
 Markdown, emoji, başlık, madde işareti ve numaralı liste kullanma. Gerekirse paragrafları satır sonuyla ayır.
+Sayıları her zaman rakamla yaz. Saatleri 24 saat biçiminde ver: "19:00", "14:50". Süre ve adetleri de rakamla yaz: "90 dakika", "8 görev", "5 dakika", "2 adım". "on dokuz", "doksan", "beşer", "on dört elli" gibi yazıyla sayı yazma.
 Sadece mesaj metnini döndür; açıklama veya JSON yazma.
 Verilmeyen bir şeyi olmuş gibi anlatma; sadece bağlamdaki verilere dayan.
 Kullanıcıya görev tamamlama onayı sormadan "tamamladın" deme.`;
@@ -406,6 +407,7 @@ Kullanıcı bu uzunluğu kendisi seçti; kısa ve öz olma içgüdüsüne kapıl
 Cümleleri doldurmak için genel motivasyon veya aynı fikri tekrarlayan cümle yazma; her cümle bağlamdaki farklı bir bilgiyi (görev adı, saat, kalan süre, öncelik, risk, somut adım) kullansın.
 Bağlamda olmayan saat, süre veya bitiş bilgisi uydurma; "minutesUntilEnd" negatifse süre geçmiş, pozitifse kalan dakikadır.
 Görev çokluğuna, öncelik seviyelerine ve deadline'lara göre karar ver; yetişmesi gereken iş varsa zaman önerisi ver, uygunsa tek cümlelik kısa bir motivasyon ekle.
+Sayıları rakamla yaz; saatleri "19:00", süreleri "90 dakika", adetleri "8 görev" biçiminde ver. Yazıyla sayı yazma.
 Daha önce söylenen mesajı birebir tekrarlama.`;
 
   try {
@@ -471,6 +473,7 @@ ${JSON.stringify(contextPayload(ctx))}
 
 Bu cevaba verilecek mentor yanıtını yaz.
 Uzunluk: ${lengthDirective(replySentences, "reply")}
+Sayıları rakamla yaz; saatleri "19:00", süreleri "15 dakika" biçiminde ver.
 Görev tamamlanmadıysa tamamlanmış gibi konuşma. Yeni bir görev başlatma; aktif görevi koru.`;
 
   try {
@@ -513,7 +516,7 @@ export async function generateFirstSteps(
         `Adımlar sıralı, somut ve hemen yapılabilir olsun, her biri en fazla 12 kelime. ` +
         `Sadece JSON array döndür: ["adım1","adım2", ...]`,
       system:
-        "Sen pratik bir üretkenlik koçusun. Kısa, uygulanabilir adımlar verirsin. Sadece JSON döndür.",
+        "Sen pratik bir üretkenlik koçusun. Kısa, uygulanabilir adımlar verirsin. Sayıları rakamla yaz (19:00, 90 dakika). Sadece JSON döndür.",
       temperature: 0.5,
       maxOutputTokens: Math.min(1600, 120 + stepCount * 45),
     });
@@ -565,7 +568,7 @@ export async function generateSubtasks(
         `Her madde somut, emir kipi ve en fazla 10 kelime olsun; açıklamada geçen saat/ders/parça bilgilerini koru. ` +
         `Sadece JSON array döndür: ["alt görev1","alt görev2", ...]`,
       system:
-        "Sen pratik bir planlama asistanısın. Görevleri yapılabilir alt adımlara bölersin. Sadece JSON döndür.",
+        "Sen pratik bir planlama asistanısın. Görevleri yapılabilir alt adımlara bölersin. Sayıları rakamla yaz. Sadece JSON döndür.",
       temperature: 0.3,
       maxOutputTokens: 320,
     });
@@ -661,7 +664,7 @@ export async function generateDailyLaunch(
     const text = await generateText({
       prompt: `Bağlam (JSON):\n${JSON.stringify(contextPayload(ctx))}\n\nBugünün öncelikli ${count} görevini seç (en fazla ${count}, daha az görev varsa hepsi) ve şu JSON'u döndür:\n{"items":[{"title":"görev adı","firstStep":"ilk 5 dakikada yapılacak tek şey","doneCriteria":"tamamlanma ölçütü"}]}\nKısa tut, her alan tek cümle. Sadece JSON.`,
       system:
-        "Sen Adaptime mentorüsün. Gerçekçi, kısa ve uygulanabilir plan yaparsın. Sadece JSON döndür.",
+        "Sen Adaptime mentorüsün. Gerçekçi, kısa ve uygulanabilir plan yaparsın. Sayıları rakamla yaz (19:00, 90 dakika). Sadece JSON döndür.",
       temperature: 0.4,
       maxOutputTokens: 160 + count * 90,
     });

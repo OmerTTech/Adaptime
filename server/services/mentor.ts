@@ -96,10 +96,11 @@ function lengthDirective(
   const min = Math.max(3, Math.ceil(budget * 0.7));
   const paragraphs =
     budget >= 10
-      ? " Mesajı 2-4 kısa paragrafa böl; paragrafları satır sonuyla ayır, madde işareti kullanma."
+      ? " Mesajı 4-6 kısa paragrafa böl; her paragrafta 2-4 cümle olsun. Paragraf sayısı cümle sayısı değildir."
       : "";
   return (
-    `En az ${min}, en fazla ${budget} cümle yaz.${paragraphs} ` +
+    `Toplam ${budget} cümlelik bir mesaj yaz (en az ${min}). ` +
+    `Cümle = nokta (.) ile biten ifade; cümleleri say, ${min} cümleden az yazma.${paragraphs} ` +
     `${content} Her cümle yeni bilgi taşısın; aynı fikri tekrar etme, ` +
     `gereksiz övgü veya genel motivasyon cümlesi ekleme.`
   );
@@ -285,12 +286,16 @@ function fallbackDetails(
   return out;
 }
 
-/** Uzun ayarlarda kural tabanlı mesajı doldurmak için genel ama işe yarar cümleler. */
+/** Uzun ayarlarda AI/kural mesajını ayarlanan cümle sayısına yaklaştıran cümleler. */
 const FALLBACK_TIPS = [
   "Şu an sadece seçtiğin göreve odaklan; diğerlerini sıraya koy.",
   "Telefonu sessize alıp bildirimleri kapat; ilk 5 dakika bölünmesin.",
   "Görevi bitirmek için gereken en küçük adımı şimdi yap.",
   "Bir sonraki kontrole kadar ilerlemeyi burada bildir; böylece planı birlikte güncelleyelim.",
+  "Bugünün en önemli işini bitirmeden küçük işlere geçme.",
+  "Süre bitmeden ilerlemeyi kaydet; yarıda kalan işi yarına devralmayalım.",
+  "Bir engelle karşılaşırsan görevi daha küçük parçalara böl.",
+  "Mola vereceksen süresini şimdi belirle, sonra aynı göreve dön.",
 ];
 
 /** AI çalışmadığında kullanılacak, duruma uygun kural tabanlı mesaj. */
@@ -364,6 +369,23 @@ Verilmeyen bir şeyi olmuş gibi anlatma; sadece bağlamdaki verilere dayan.
 Kullanıcıya görev tamamlama onayı sormadan "tamamladın" deme.`;
 
 /**
+ * Gemini bazen cümle hedefinin altında kalıyor (özellikle 10+ ayarlarda).
+ * Mesajı yeniden yazdırmak yerine, hedefin alt sınırına ulaşana kadar
+ * bağlama uygun kısa cümleler ekler.
+ */
+function fitAiLength(message: string, budget: number): string {
+  if (budget < 6) return message;
+  const min = Math.max(3, Math.ceil(budget * 0.7));
+  const have = sentenceCount(message);
+  if (have >= min) return message;
+  const extra = FALLBACK_TIPS.filter((t) => !message.includes(t)).slice(
+    0,
+    min - have,
+  );
+  return extra.length > 0 ? `${message}\n\n${extra.join(" ")}` : message;
+}
+
+/**
  * Saatlik kontrol / manuel kontrol mesajı üretir.
  */
 export async function composeCheckMessage(
@@ -393,7 +415,8 @@ Daha önce söylenen mesajı birebir tekrarlama.`;
       temperature: 0.7,
       maxOutputTokens: outputTokenBudget(budget),
     });
-    return { message: text.replace(/^["']|["']$/g, "").trim(), source: "ai", situation };
+    const message = text.replace(/^["']|["']$/g, "").trim();
+    return { message: fitAiLength(message, budget), source: "ai", situation };
   } catch (error) {
     if (!(error instanceof GeminiError)) {
       console.warn("Mentor AI hatası:", error);

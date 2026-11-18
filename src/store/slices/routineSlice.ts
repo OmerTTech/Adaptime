@@ -84,6 +84,12 @@ interface RoutineState {
   lastSynced: number | null;
   /** Yeni eklenen/düzenlenen görev başka bir görevle çakışırsa doldurulur. */
   pendingConflict: PendingConflict | null;
+  /** Sunucudaki son bilinen sürüm (409 çakışma kontrolü). */
+  revision: number | null;
+  /** Kayıt 409 aldı: otomatik kayıt durur, kararı kullanıcı verir. */
+  syncConflict: boolean;
+  /** Sunucuya ulaşılamadı: değişiklikler yerelde, bağlantı gelince gönderilir. */
+  pendingSave: boolean;
 }
 
 /** Çakışan ilk açık görevi döndürür (birlikte işaretliler hariç). */
@@ -109,12 +115,16 @@ export const loadTodayRoutine = createAsyncThunk(
     const data = await routineApi.get(date, token);
     if (!data) return null;
     return {
-      id: data._id,
-      date: data.date,
-      tasks: mapApiTasks(data.tasks as ApiTask[]),
-      dayEndTime: data.dayEndTime,
-      streak: data.streak,
-    } as DayRoutine;
+      routine: {
+        id: data._id,
+        date: data.date,
+        tasks: mapApiTasks(data.tasks as ApiTask[]),
+        dayEndTime: data.dayEndTime,
+        streak: data.streak,
+      } as DayRoutine,
+      // Eski kayıtlarda revision yok: sıradaki kayıt koşulsuz gider.
+      revision: data.revision ?? 0,
+    };
   },
 );
 
@@ -134,20 +144,63 @@ export const loadRoutineHistory = createAsyncThunk(
 
 export const saveRoutineToBackend = createAsyncThunk(
   "routine/save",
-  async ({ routine, token }: { routine: DayRoutine; token: string }) => {
-    // Geçmiş bir günün planını bugünmüş gibi sunucuya yazma.
-    if (routine.date !== getTodayString()) return Date.now();
-    await routineApi.save(
-      {
-        date: routine.date,
-        tasks: routine.tasks,
-        // Plandan hesaplanır; silinen görevlerin bıraktığı eski değer kaydedilmesin.
-        dayEndTime: getPlannedDayEnd(routine.tasks, routine.dayEndTime),
-        streak: routine.streak,
-      },
+  async (
+    {
+      routine,
       token,
-    );
-    return Date.now();
+      force = false,
+    }: { routine: DayRoutine; token: string; force?: boolean },
+    { getState },
+  ) => {
+    const at = Date.now();
+    // Geçmiş bir günün planını bugünmüş gibi sunucuya yazma.
+    if (routine.date !== getTodayString()) {
+      return {
+        at,
+        revision: null as number | null,
+        conflict: false,
+        offline: false,
+      };
+    }
+    const baseRevision = (
+      getState() as { routine: { revision: number | null } }
+    ).routine.revision;
+    try {
+      const res = await routineApi.save(
+        {
+          date: routine.date,
+          tasks: routine.tasks,
+          // Plandan hesaplanır; silinen görevlerin bıraktığı eski değer kaydedilmesin.
+          dayEndTime: getPlannedDayEnd(routine.tasks, routine.dayEndTime),
+          streak: routine.streak,
+          ...(force || baseRevision === null ? {} : { baseRevision }),
+        },
+        token,
+      );
+      return {
+        at,
+        revision: typeof res?.revision === "number" ? res.revision : null,
+        conflict: false,
+        offline: false,
+      };
+    } catch (error) {
+      // 409: plan başka bir cihazda (ya da gece devrinde) değişti.
+      if ((error as { status?: number }).status === 409) {
+        return {
+          at,
+          revision: null as number | null,
+          conflict: true,
+          offline: false,
+        };
+      }
+      // Ağ hatası: değişiklikler yerelde durur, bağlantı gelince tekrar denenir.
+      return {
+        at,
+        revision: null as number | null,
+        conflict: false,
+        offline: true,
+      };
+    }
   },
 );
 
@@ -161,6 +214,10 @@ function startTodayIfStale(state: RoutineState) {
   if (!state.currentRoutine || state.currentRoutine.date !== today) {
     state.currentRoutine = getInitialRoutine();
     state.preview = null;
+    // Yeni gün yeni kayıt: dünün revision'ı ile koşulsuz yazma yapılmasın.
+    state.revision = null;
+    state.syncConflict = false;
+    state.pendingSave = false;
   }
 }
 
@@ -183,6 +240,9 @@ const routineSlice = createSlice({
     historyLoaded: false,
     lastSynced: null,
     pendingConflict: null,
+    revision: null,
+    syncConflict: false,
+    pendingSave: false,
   } as RoutineState,
   reducers: {
     addTask: (
@@ -238,9 +298,14 @@ const routineSlice = createSlice({
         typeof startTime === "number" &&
         typeof endTime === "number" &&
         endTime > startTime;
+      const taskId = generateId();
       const task: TaskBlock = {
-        id: generateId(),
+        id: taskId,
         title,
+        // Varsayılan: saatsiz todo kalıcı (tamamlanana kadar her gün devreder),
+        // saatli görev tek seferlik. Düzenleme ekranından değiştirilebilir.
+        carryPolicy: scheduled ? "once" : "rolling",
+        originId: taskId,
         ...(scheduled
           ? {
               startTime,
@@ -309,9 +374,13 @@ const routineSlice = createSlice({
         task.startTime && task.endTime
           ? Math.max(5, Math.round((task.endTime - task.startTime) / 60_000))
           : (task.estimatedMinutes ?? 30);
+      const copyId = generateId();
       const copy: TaskBlock = {
         ...task,
-        id: generateId(),
+        id: copyId,
+        // Kopya yeni bir görev zinciridir; devir geçmişi taşınmaz.
+        originId: copyId,
+        carryCount: 0,
         title: `${task.title} (kopya)`,
         status: "pending",
         pausedDuration: 0,
@@ -332,6 +401,7 @@ const routineSlice = createSlice({
       delete copy.startedAt;
       delete copy.pausedAt;
       delete copy.completedAt;
+      delete copy.carriedFrom;
       routine.tasks.push(copy);
     },
     removeTask: (state, action: PayloadAction<string>) => {
@@ -399,8 +469,11 @@ const routineSlice = createSlice({
         (s) => s.id !== sub.id,
       );
       // Saatsiz (Yapılacaklar) görev olarak geri döner.
+      const detachedId = generateId();
       routine.tasks.push({
-        id: generateId(),
+        id: detachedId,
+        originId: detachedId,
+        carryPolicy: "rolling",
         title: sub.title,
         color: parent.color,
         status: sub.done ? "completed" : "pending",
@@ -736,20 +809,27 @@ const routineSlice = createSlice({
       state.history = [];
       state.historyLoaded = false;
       state.lastSynced = null;
+      state.revision = null;
+      state.syncConflict = false;
+      state.pendingSave = false;
     },
   },
   extraReducers: (builder) => {
     builder.addCase(loadTodayRoutine.fulfilled, (state, action) => {
       const today = getTodayString();
       if (action.payload) {
-        action.payload.tasks = normalizeTaskDates(action.payload.tasks, today);
-        state.currentRoutine = { ...action.payload, date: today };
+        const routine = { ...action.payload.routine, date: today };
+        routine.tasks = normalizeTaskDates(routine.tasks, today);
+        state.currentRoutine = routine;
+        state.revision = action.payload.revision;
       } else if (state.currentRoutine?.date !== today) {
         // Bugün için sunucuda kayıt yok: geçmiş günden kalan planı bugün gibi
         // gösterme, temiz bir gün başlat.
         state.currentRoutine = getInitialRoutine();
         state.preview = null;
+        state.revision = null;
       }
+      state.syncConflict = false;
       state.lastSynced = Date.now();
     });
     builder.addCase(loadRoutineHistory.fulfilled, (state, action) => {
@@ -757,7 +837,22 @@ const routineSlice = createSlice({
       state.historyLoaded = true;
     });
     builder.addCase(saveRoutineToBackend.fulfilled, (state, action) => {
-      state.lastSynced = action.payload;
+      if (action.payload.offline) {
+        state.pendingSave = true;
+        return;
+      }
+      state.pendingSave = false;
+      state.lastSynced = action.payload.at;
+      if (action.payload.conflict) {
+        // Kullanıcı "sunucudan yükle" ya da "bu cihazı koru" diyene kadar
+        // otomatik kayıt durur; aksi halde her değişiklik yeniden 409 alır.
+        state.syncConflict = true;
+        return;
+      }
+      state.syncConflict = false;
+      if (action.payload.revision !== null) {
+        state.revision = action.payload.revision;
+      }
     });
   },
 });

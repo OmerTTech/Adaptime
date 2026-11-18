@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { resetRoutine } from "@/store/slices/routineSlice";
+import { loadTodayRoutine, resetRoutine } from "@/store/slices/routineSlice";
 import { setProgressiveLists } from "@/store/slices/uiSlice";
 import { saveMentorSettings } from "@/store/slices/mentorSlice";
 import { useTheme } from "@/contexts/ThemeContext";
-import { routineApi } from "@/services/api";
+import { backupApi, routineApi } from "@/services/api";
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -36,6 +36,7 @@ import Avatar from "@/components/ui/Avatar";
 import { getTodayString } from "@/utils";
 import type { MentorSettings, MentorTone } from "@/types";
 import {
+  ArchiveRestore,
   Bell,
   BellOff,
   BrainCircuit,
@@ -174,6 +175,49 @@ export default function SettingsPage() {
     };
     reader.onerror = () => setSoundMessage("Ses dosyası okunamadı.");
     reader.readAsDataURL(file);
+  };
+
+  // Sunucunun günlük otomatik yedekleri (son 7 gün).
+  const [backups, setBackups] = useState<
+    Array<{
+      id: string;
+      dateKey: string;
+      createdAt: string;
+      days: number;
+      tasks: number;
+    }>
+  >([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    backupApi
+      .list(token)
+      .then((res) => {
+        if (!cancelled) setBackups(res.items);
+      })
+      .catch(() => {
+        /* çevrimdışı: liste boş kalır */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const handleRestore = async (id: string) => {
+    if (!token) return;
+    setRestoringId(id);
+    setMessage(null);
+    try {
+      const res = await backupApi.restore(id, token);
+      dispatch(loadTodayRoutine(token));
+      setMessage(`${res.restored} gün yedekten geri yüklendi.`);
+    } catch {
+      setMessage("Geri yükleme başarısız.");
+    } finally {
+      setRestoringId(null);
+    }
   };
 
   const handleExport = () => {
@@ -758,6 +802,48 @@ export default function SettingsPage() {
           Görevlerin, aktivite kayıtların ve odak oturumların hesabına bağlı
           olarak sunucuda saklanır. Bu buton görev verilerini kalıcı olarak siler.
         </p>
+        <div className="mt-4 pt-3 border-t border-border">
+          <div className="flex items-center gap-2 text-xs font-medium text-text mb-1">
+            <ArchiveRestore size={14} className="text-primary" />
+            Otomatik yedekler
+            <span className="text-text-muted font-normal">— son 7 gün</span>
+          </div>
+          <p className="text-[11px] text-text-muted mb-2">
+            Sunucu her gün planlarının bir kopyasını saklar. Bir şey ters
+            giderse buradan geri dönebilirsin.
+          </p>
+          {backups.length === 0 ? (
+            <p className="text-[11px] text-text-muted/70">Henüz yedek yok.</p>
+          ) : (
+            <ul className="space-y-1">
+              {backups.map((backup) => (
+                <li
+                  key={backup.id}
+                  className="flex items-center gap-2 text-[11px] text-text-muted"
+                >
+                  <span className="text-text tabular-nums">
+                    {new Date(backup.createdAt).toLocaleString("tr-TR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  <span className="truncate">
+                    {backup.days} gün · {backup.tasks} görev
+                  </span>
+                  <button
+                    onClick={() => handleRestore(backup.id)}
+                    disabled={restoringId === backup.id}
+                    className="ml-auto shrink-0 px-2 py-1 rounded-lg bg-background border border-border text-[10px] text-text hover:border-primary/50 transition-colors disabled:opacity-50"
+                  >
+                    {restoringId === backup.id ? "Yükleniyor…" : "Geri yükle"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button
           onClick={handleWipe}
           disabled={clearing}

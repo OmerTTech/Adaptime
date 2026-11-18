@@ -1,0 +1,45 @@
+name: Adaptime cron
+
+# Render ücretsiz servisi trafik almayınca uyuyor ve sunucu içindeki
+# setInterval sayaçları duruyor. Bu iş 10 dakikada bir /api/cron/tick
+# çağırarak servisi uyandırır; kaçırılan saatler push tarafında telafi edilir
+# (saat başına en fazla bir gönderim, 90 dk'dan eski olmaz).
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: adaptime-cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tick
+        env:
+          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "CRON_URL / CRON_SECRET secrets are not set; skipping."
+            exit 0
+          fi
+          echo "Calling ${CRON_URL}"
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /tmp/tick.json -w "%{http_code}" \
+              --max-time 60 \
+              -X POST "${CRON_URL}" \
+              -H "x-cron-secret: ${CRON_SECRET}" \
+              -H "content-type: application/json") || code=000
+            echo "attempt ${attempt}: HTTP ${code}"
+            if [ "$code" = "200" ]; then
+              cat /tmp/tick.json
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "Cron tick failed after 3 attempts"
+          exit 1

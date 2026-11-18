@@ -25,6 +25,16 @@ export interface ITaskBlock {
   status: "pending" | "active" | "paused" | "completed" | "skipped";
   /** Saatsiz görev önceki günden devredildiyse kaynak tarih. */
   carriedFrom?: string;
+  /**
+   * Devir politikası (3.8):
+   * - once: yalnızca o gün geçerli (varsayılan: saatli görevler)
+   * - rolling: tamamlanana kadar her gün devam eder (saatsiz todolar)
+   */
+  carryPolicy?: "once" | "rolling";
+  /** Zincirin ilk görevinin kimliği; başlık eşitliği yerine bununla eşleşir. */
+  originId?: string;
+  /** Kaç gündür devam ettiği (3+ gün kartı için). */
+  carryCount?: number;
   startedAt?: number;
   pausedAt?: number;
   pausedDuration: number;
@@ -47,6 +57,8 @@ export interface IRoutine extends Document {
   tasks: ITaskBlock[];
   dayEndTime: number;
   streak: number;
+  /** Çok cihaz senkronu için sürüm sayacı (1.1). */
+  revision: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -81,6 +93,9 @@ const taskBlockSchema = new Schema<ITaskBlock>(
     estimatedMinutes: { type: Number },
     color: { type: String, default: "#6366f1" },
     carriedFrom: { type: String },
+    carryPolicy: { type: String, enum: ["once", "rolling"] },
+    originId: { type: String },
+    carryCount: { type: Number, default: 0 },
     status: {
       type: String,
       enum: ["pending", "active", "paused", "completed", "skipped"],
@@ -118,6 +133,7 @@ const routineSchema = new Schema<IRoutine>(
     tasks: [taskBlockSchema],
     dayEndTime: { type: Number, default: 0 },
     streak: { type: Number, default: 0 },
+    revision: { type: Number, default: 0 },
   },
   { timestamps: true },
 );

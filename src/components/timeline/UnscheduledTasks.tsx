@@ -380,6 +380,42 @@ export default function UnscheduledTasks() {
                   </div>
                 </div>
               )}
+
+              {/* 3+ gündür devreden görev: nazikçe küçült/böl/sil önerisi. */}
+              {(task.carryCount ?? 0) >= 3 && !completed && (
+                <div className="mx-1 mb-2 px-2.5 py-2 rounded-lg bg-warning/10 border border-warning/30">
+                  <p className="text-[11px] text-text leading-snug">
+                    Bu görev <strong>{task.carryCount} gündür</strong> devam
+                    ediyor.
+                  </p>
+                  <p className="text-[10px] text-text-muted leading-snug mt-0.5">
+                    Bugün bitirebileceğin kadar küçült, alt görevlere böl ya da
+                    artık gündemden çıkar.
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => dispatch(openEditModal(task.id))}
+                      className="px-2 py-1 rounded-lg bg-background border border-border text-[10px] text-text hover:border-primary/50 transition-colors"
+                    >
+                      Küçült
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatch(openEditModal(task.id))}
+                      className="px-2 py-1 rounded-lg bg-background border border-border text-[10px] text-text hover:border-primary/50 transition-colors"
+                    >
+                      Alt görevlere böl
+                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => dispatch(removeTask(task.id))}
+                      title="Bu görevi sil"
+                      className="px-1.5 py-1 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+                      size={12}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

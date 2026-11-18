@@ -1,5 +1,5 @@
 /* Adaptime service worker — kabuk önbelleği + arka plan bildirimleri. */
-const CACHE = "adaptime-shell-v2";
+const CACHE = "adaptime-shell-v3";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg"];
 // Geliştirme modunda kayıt ?dev=1 ile yapılır: önbellek kullanılmaz, yalnızca push çalışır.
 const DEV = new URL(self.location.href).searchParams.get("dev") === "1";
@@ -75,6 +75,8 @@ self.addEventListener("push", (event) => {
     body: "Yeni bir hatırlatma var.",
     url: "/",
     tag: "adaptime",
+    actions: [],
+    actionUrls: {},
   };
 
   try {
@@ -83,13 +85,22 @@ self.addEventListener("push", (event) => {
     if (event.data) payload.body = event.data.text();
   }
 
+  const actions = Array.isArray(payload.actions)
+    ? payload.actions.slice(0, 2)
+    : [];
+
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
       tag: payload.tag,
       icon: "/favicon.svg",
       badge: "/favicon.svg",
-      data: { url: payload.url || "/" },
+      // Düğme hedefleri click olayında kullanılır (tamamla / 10 dk daha).
+      data: {
+        url: payload.url || "/",
+        actionUrls: payload.actionUrls || {},
+      },
+      ...(actions.length > 0 ? { actions } : {}),
       vibrate: [80, 40, 80],
     }),
   );
@@ -97,7 +108,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/";
+  const data = event.notification.data || {};
+  const actionUrls = data.actionUrls || {};
+  // Düğmeye basıldıysa onun hedefi, yoksa bildirimin kendi adresi açılır.
+  const target =
+    (event.action && actionUrls[event.action]) || data.url || "/";
 
   event.waitUntil(
     clients

@@ -19,6 +19,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
 import { useAccountabilityEngine } from "@/hooks/useAccountabilityEngine";
 import { useFocusGuard } from "@/hooks/useFocusGuard";
+import { useNotificationAction } from "@/hooks/useNotificationAction";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import OClock from "@/components/clock/OClock";
 import TimelineView from "@/components/timeline/TimelineView";
 import FocusTimer from "@/components/timer/FocusTimer";
@@ -63,6 +65,7 @@ import {
   Settings,
   Sun,
   Timer,
+  WifiOff,
 } from "lucide-react";
 
 const NAV: { page: PageName; label: string; icon: typeof Sun }[] = [
@@ -89,6 +92,11 @@ export default function TodayPage() {
   const page = useAppSelector((state) => state.ui.activePage);
   const routine = useAppSelector((state) => state.routine.currentRoutine);
   const tasks = routine?.tasks ?? [];
+  // 409: başka bir cihaz/gün devri planı değiştirdi.
+  const syncConflict = useAppSelector((s) => s.routine.syncConflict);
+  // Çevrimdışıyken kaydedilemeyen değişiklik var mı?
+  const pendingSave = useAppSelector((s) => s.routine.pendingSave);
+  const online = useOnlineStatus();
   const selectedDate = useAppSelector((state) => state.ui.selectedDate);
   // Takvimde bugün dışında bir gün seçiliyse o günün planı gösterilir.
   const isTodayView = selectedDate === getTodayString();
@@ -96,6 +104,8 @@ export default function TodayPage() {
   useAccountabilityEngine(token);
   // Odak sayacı açık kalmışsa süreyi saymaz; süre bitince arka plan bildirimi.
   useFocusGuard(token);
+  // Bildirimdeki "Tamamlandı" / "10 dk daha" düğmelerinden gelen komutlar.
+  useNotificationAction();
 
   // Load routine from backend on login
   useEffect(() => {
@@ -185,13 +195,20 @@ export default function TodayPage() {
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!token || !routine) return;
+    // Çakışma çözülene kadar otomatik kayıt durur; her değişiklik 409 almasın.
+    if (syncConflict) return;
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
     syncTimeout.current = setTimeout(() => {
       dispatch(saveRoutineToBackend({ routine, token }))
         .unwrap()
         // Kayıt sunucuya gittikten sonra mentor/analitik özetini hemen tazele;
         // aksi halde sayaçlar 60 saniyelik yoklamaya kadar eski kalıyor.
-        .then(() => dispatch(loadAccountabilityState(token)))
+        .then((res) => {
+          // Çevrimdışı ya da çakışma: sunucudaki durum eski, özeti tazeleme.
+          if (!res?.offline && !res?.conflict) {
+            dispatch(loadAccountabilityState(token));
+          }
+        })
         .catch(() => {
           /* offline: sonraki değişiklikte tekrar denenir */
         });
@@ -199,7 +216,13 @@ export default function TodayPage() {
     return () => {
       if (syncTimeout.current) clearTimeout(syncTimeout.current);
     };
-  }, [token, routine, dispatch]);
+  }, [token, routine, syncConflict, dispatch]);
+
+  // Çevrimdışıyken kaydedilemeyen değişiklikler: bağlantı gelince yeniden gönder.
+  useEffect(() => {
+    if (!online || !pendingSave || !token || !routine) return;
+    dispatch(saveRoutineToBackend({ routine, token }));
+  }, [online, pendingSave, token, routine, dispatch]);
 
   const isAddModalOpen = useAppSelector((state) => state.ui.isAddModalOpen);
   const isEditModalOpen = useAppSelector((state) => state.ui.isEditModalOpen);
@@ -231,6 +254,17 @@ export default function TodayPage() {
   };
 
   const handlePage = (p: PageName) => dispatch(setActivePage(p));
+
+  // "Bu cihazı koru": sunucudaki sürümü yok sayıp yerel planı yazar.
+  const handleKeepLocal = () => {
+    if (!token || !routine) return;
+    dispatch(saveRoutineToBackend({ routine, token, force: true }))
+      .unwrap()
+      .then(() => dispatch(loadAccountabilityState(token)))
+      .catch(() => {
+        /* çevrimdışı: sonraki değişiklikte tekrar denenir */
+      });
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -294,6 +328,37 @@ export default function TodayPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 pt-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-10">
+        {syncConflict && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-warning/10 border border-warning/40 text-[11px] text-text">
+            <span className="flex-1 min-w-[12rem] leading-snug">
+              Bu plan başka bir cihazda değişti. Otomatik kayıt, sen karar verene
+              kadar durduruldu.
+            </span>
+            <button
+              onClick={() => token && dispatch(loadTodayRoutine(token))}
+              className="px-2.5 py-1 rounded-lg bg-primary text-white text-[11px] font-medium hover:bg-primary-hover transition-colors"
+            >
+              Sunucudan yükle
+            </button>
+            <button
+              onClick={handleKeepLocal}
+              className="px-2.5 py-1 rounded-lg bg-background border border-border text-[11px] text-text hover:border-primary/50 transition-colors"
+            >
+              Bu cihazı koru
+            </button>
+          </div>
+        )}
+        {(!online || pendingSave) && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border text-[11px] text-text-muted">
+            <WifiOff size={12} className="shrink-0 text-warning" />
+            <span className="flex-1 leading-snug">
+              {online
+                ? "Değişiklikler gönderilemedi — bağlantı gelince tekrar denenecek."
+                : "Çevrimdışısın — değişiklikler bu cihazda saklanıyor, bağlantı gelince gönderilecek."}
+            </span>
+          </div>
+        )}
+
         {page === "stats" && (
           <div className="flex justify-center sm:hidden py-2">
             <div className="flex items-center gap-1 rounded-xl bg-surface border border-border p-1">

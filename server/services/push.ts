@@ -100,6 +100,10 @@ export interface PushPayload {
   body: string;
   url?: string;
   tag?: string;
+  /** Android/Chrome bildirim düğmeleri (en fazla 2 tane gösterilir). */
+  actions?: { action: string; title: string }[];
+  /** Düğme → hedef URL eşlemesi; sw.js notificationclick'te okur. */
+  actionUrls?: Record<string, string>;
 }
 
 /**
@@ -117,22 +121,31 @@ export async function sendPushToUser(
   let sent = 0;
 
   for (const sub of subscriptions) {
-    try {
-      await webpush.sendNotification(
-        {
-          endpoint: sub.endpoint,
-          keys: { p256dh: sub.p256dh, auth: sub.auth },
-        },
-        JSON.stringify(payload),
-        { TTL: 3600 },
-      );
-      sent += 1;
-    } catch (error) {
-      const status = (error as { statusCode?: number }).statusCode;
-      if (status === 404 || status === 410) {
-        await PushSubscription.deleteOne({ _id: sub._id });
-      } else {
-        console.warn("[push] gönderim hatası:", status ?? error);
+    let delivered = false;
+    for (let attempt = 1; attempt <= 3 && !delivered; attempt++) {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          JSON.stringify(payload),
+          { TTL: 3600 },
+        );
+        delivered = true;
+        sent += 1;
+      } catch (error) {
+        const status = (error as { statusCode?: number }).statusCode;
+        if (status === 404 || status === 410) {
+          await PushSubscription.deleteOne({ _id: sub._id });
+          break;
+        }
+        if (attempt === 3) {
+          console.warn("[push] gönderim hatası:", status ?? error);
+        } else {
+          // Artan bekleme: 0,5 sn → 1 sn
+          await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+        }
       }
     }
   }
@@ -156,18 +169,39 @@ function humanDuration(ms: number): string {
   return rest > 0 ? `${hours} sa ${rest} dk` : `${hours} sa`;
 }
 
+export interface PushTickResult {
+  mentor: number;
+  due: number;
+  overdue: number;
+}
+
+let pushTickRunner: (() => Promise<PushTickResult>) | null = null;
+let pushInFlight: Promise<PushTickResult> | null = null;
+
+/** Cron ucundan da çağrılabilen tek push turu (aynı anda tek çalışır). */
+export function runPushTick(): Promise<PushTickResult> {
+  if (pushInFlight) return pushInFlight;
+  if (!pushTickRunner)
+    return Promise.resolve({ mentor: 0, due: 0, overdue: 0 });
+  pushInFlight = pushTickRunner().finally(() => {
+    pushInFlight = null;
+  });
+  return pushInFlight;
+}
+
 /**
  * Yaklaşan görev hatırlatıcıları: önümüzdeki 10 dakikada başlayacak
  * planlı görevler için bildirim. Dakikada bir çalışır, idempotenttir.
  */
 export function startPushReminders() {
-  const tick = async () => {
+  const tick = async (): Promise<PushTickResult> => {
+    const result: PushTickResult = { mentor: 0, due: 0, overdue: 0 };
     try {
       const config = await ensureVapid();
-      if (!config.enabled) return;
+      if (!config.enabled) return result;
 
       const userIds = await PushSubscription.distinct("userId");
-      if (userIds.length === 0) return;
+      if (userIds.length === 0) return result;
 
       const users = await User.find({ _id: { $in: userIds } }).select(
         "timezone focusSeenAt",
@@ -207,11 +241,16 @@ export function startPushReminders() {
             timeZone: tz,
           });
 
+          const dueTaskId = String(
+            (task as { _id?: unknown })._id ?? "",
+          );
+          result.due += 1;
           await sendPushToUser(String(user._id), {
             title: "Sıradaki görev",
             body: `${task.title} · ${clock}'de başlıyor`,
             tag: key,
-            url: "/",
+            // Bildirime dokununca ilgili görev vurgulanır.
+            url: `/?task=${encodeURIComponent(dueTaskId)}`,
           });
         }
 
@@ -255,19 +294,36 @@ export function startPushReminders() {
             if (alreadyNotified.has(key)) continue;
             rememberKey(key);
 
+            const overrunId = String(
+              (task as { _id?: unknown })._id ?? "",
+            );
+            const deepLink = `/?task=${encodeURIComponent(overrunId)}`;
+            result.overdue += 1;
             await sendPushToUser(String(user._id), {
               title: "Süre bitti",
               body: `“${task.title}” ${humanDuration(late)} önce bitmişti, hâlâ açık görünüyor. Tamamlandı mı?`,
               tag: key,
-              url: "/",
+              url: deepLink,
+              // Bildirimden çıkmadan karar ver: tamamla ya da 10 dk daha.
+              actions: [
+                { action: "complete", title: "Tamamlandı" },
+                { action: "extend", title: "10 dk daha" },
+              ],
+              actionUrls: {
+                complete: `${deepLink}&do=complete`,
+                extend: `${deepLink}&do=extend`,
+              },
             });
           }
         }
 
+        // Saat başına tek gönderim anahtarı (mentorKey) sayesinde pencereyi
+        // saat sonuna kadar açık tutmak güvenli: sunucu uykudan 20:14'te
+        // uyanırsa 20:00 kontrolü yine de bir kez gider (telafi).
         if (
           settings?.enabled &&
           settings.hours?.includes(localHour) &&
-          localMinute < 10
+          localMinute <= 50
         ) {
           const open = routine.tasks.filter(
             (t) => t.status !== "completed" && t.status !== "skipped",
@@ -277,12 +333,15 @@ export function startPushReminders() {
             if (!alreadyNotified.has(mentorKey)) {
               rememberKey(mentorKey);
               const head = open[0];
+              const late = localMinute > 10 ? " (gecikmeli)" : "";
+              result.mentor += 1;
               await sendPushToUser(String(user._id), {
                 title: "Mentor kontrolü",
                 body:
-                  open.length === 1
+                  (open.length === 1
                     ? `Sırada “${head.title}” var. Başladın mı?`
-                    : `${open.length} açık görev var, sıradaki “${head.title}”. Ne durumdasın?`,
+                    : `${open.length} açık görev var, sıradaki “${head.title}”. Ne durumdasın?`) +
+                  late,
                 tag: mentorKey,
                 url: "/",
               });
@@ -293,10 +352,12 @@ export function startPushReminders() {
     } catch (error) {
       console.error("[push] hatırlatıcı döngüsü:", error);
     }
+    return result;
   };
 
+  pushTickRunner = tick;
   void tick();
-  setInterval(() => void tick(), 60_000);
+  setInterval(() => void runPushTick(), 60_000);
   void ensureVapid().then((config) => {
     console.log(
       config.enabled

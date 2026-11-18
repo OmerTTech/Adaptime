@@ -37,6 +37,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Clock, CornerDownRight, Trash2 } from "lucide-react";
 
+/** Tekrar kartındaki üç mod: tek seferlik, sürekli devreden, ritüel. */
+type CarryMode = "once" | "rolling" | "repeat";
+
 const PRESET_COLORS = [
   "#FF6B6B",
   "#4ECDC4",
@@ -94,6 +97,13 @@ export default function EditTaskModal() {
   const [repeatDays, setRepeatDays] = useState<number[]>(
     task?.repeatDays ?? [],
   );
+  // Eski görevlerde carryPolicy yok: varsayılanı (saatsiz→rolling, saatli→once)
+  // burada da uygula ki select doğru modu göstersin.
+  const [carryMode, setCarryMode] = useState<CarryMode>(
+    task?.repeat
+      ? "repeat"
+      : (task?.carryPolicy ?? (task && isScheduled(task) ? "once" : "rolling")),
+  );
   const today = getTodayString();
 
   if (!task) return null;
@@ -109,8 +119,13 @@ export default function EditTaskModal() {
       priority,
       category,
       parallel,
-      repeat: repeat || undefined,
-      repeatDays: repeat === "custom" ? repeatDays : undefined,
+      repeat: carryMode === "repeat" ? repeat || "daily" : undefined,
+      repeatDays:
+        carryMode === "repeat" && repeat === "custom" ? repeatDays : undefined,
+      // "repeat" seçilirse kopyayı ritüel üretir; devir kapanır.
+      carryPolicy: carryMode === "repeat" ? undefined : carryMode,
+      carryCount: carryMode === "once" ? 0 : task.carryCount,
+      originId: task.originId ?? task.id,
       description: description.trim() || undefined,
       deadline:
         deadlineTs && Number.isFinite(deadlineTs) ? deadlineTs : undefined,
@@ -397,21 +412,52 @@ export default function EditTaskModal() {
 
           <div className="space-y-1.5">
             <label className="text-xs text-text-muted block">
-              Tekrar <span className="opacity-60">— bitirince yeni plan</span>
+              Ne olsun?{" "}
+              <span className="opacity-60">— yapılmazsa ne olacak</span>
             </label>
             <select
-              value={repeat}
-              onChange={(e) => setRepeat(e.target.value as RepeatFrequency | "")}
+              value={carryMode}
+              onChange={(e) => {
+                const mode = e.target.value as CarryMode;
+                setCarryMode(mode);
+                if (mode === "repeat" && !repeat) setRepeat("daily");
+              }}
               className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
             >
-              <option value="">Tekrar yok</option>
-              {(Object.keys(REPEAT_LABEL) as RepeatFrequency[]).map((f) => (
-                <option key={f} value={f}>
-                  {REPEAT_LABEL[f]}
-                </option>
-              ))}
+              <option value="once">Bir kez — sadece bugün</option>
+              <option value="rolling">Bitene kadar her gün</option>
+              <option value="repeat">Her gün yeniden (ritüel)</option>
             </select>
-            {repeat === "custom" && (
+            <p className="text-[10px] text-text-muted/80 leading-snug">
+              {carryMode === "once" &&
+                "Yapılmazsa ertesi güne taşınmaz; listeden düşer."}
+              {carryMode === "rolling" &&
+                "Tamamlanana kadar her gün listende kalır (en fazla 30 gün). İlerleme ve geçen süre korunur."}
+              {carryMode === "repeat" &&
+                "Tamamlandığında seçilen sıklıkta yeni bir kopya oluşur; devretmez."}
+            </p>
+            {carryMode === "rolling" && (task.carryCount ?? 0) >= 3 && (
+              <p className="text-[10px] text-warning leading-snug">
+                Bu görev {task.carryCount} gündür devrediyor. Bugün bitecek kadar
+                küçültmeyi ya da alt görevlere bölmeyi düşün.
+              </p>
+            )}
+            {carryMode === "repeat" && (
+              <select
+                value={repeat}
+                onChange={(e) =>
+                  setRepeat(e.target.value as RepeatFrequency | "")
+                }
+                className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+              >
+                {(Object.keys(REPEAT_LABEL) as RepeatFrequency[]).map((f) => (
+                  <option key={f} value={f}>
+                    {REPEAT_LABEL[f]}
+                  </option>
+                ))}
+              </select>
+            )}
+            {carryMode === "repeat" && repeat === "custom" && (
               <div className="flex flex-wrap gap-1">
                 {WEEKDAY_ORDER.map((index) => {
                   const label = WEEKDAY_LABEL[index];

@@ -184,3 +184,41 @@ server/
 - `LEARN.md` — uygulamayı ve mimariyi derinlemesine anlatan rehber
 - `CHANGELOG.md` — sürüm geçmişi
 - `VERSION` — güncel sürüm
+---
+
+## Harici cron (Render uykusu)
+
+Render ücretsiz planında servis trafik almayınca uyur; sunucu içindeki 60 sn'lik zamanlayıcılar da durur. Bunu aşmak için `/api/cron/tick` ucu vardır ve dışarıdan 5-10 dakikada bir çağrılmalıdır.
+
+1. Sunucuya `CRON_SECRET` ekle (Render → Environment).
+2. GitHub deposuna `CRON_URL` (`https://<api>/api/cron/tick`) ve `CRON_SECRET` secret'larını ekle.
+3. `.github/workflows/cron.yml` her 10 dakikada bir ucu çağırır (`workflow_dispatch` ile elle de çalıştırılabilir).
+
+Tek turda: saatlik mentor kontrolü (`runSchedulerTick`), görev/mentor push'ları (kaçırılan saat telafisiyle), günde bir kez gün devri ve otomatik JSON yedeği çalışır.
+
+`CRON_SECRET` boşsa uç tamamen kapalıdır (401). `GET /api/health` → `cron: "off" | "configured"`.
+
+## Test ve CI
+
+```bash
+npm test        # Vitest: motor (timeEngine, estimates) testleri
+```
+
+`.github/workflows/ci.yml` her push/PR'da build (typecheck dâhil) + lint + test çalıştırır.
+
+## Yedekler
+
+Sunucu günde bir kez (cron) son 7 günün planlarını kullanıcı başına tek snapshot olarak `routinebackups` koleksiyonuna yazar; 7 günden eskiler TTL ile silinir.
+
+| Uç | Açıklama |
+|---|---|
+| `GET /api/backups` | Son 7 yedek (gün sayısı + görev sayısı) |
+| `POST /api/backups/:id/restore` | Yedeği geri yükle (revision artırılır) |
+
+Ayarlar → Veri bölümündeki "Geri yükle" ile kullanılır.
+
+## Çok cihaz senkronu ve çevrimdışı
+
+`POST /api/routines` gövdesinde `baseRevision` gönderilir. Sunucudaki `revision` farklıysa uç `409` döner; arayüz "Sunucudan yükle / Bu cihazı koru" şeridini gösterir ve kullanıcı karar verene kadar otomatik kayıt durur. Çevrimdışıyken kaydedilemeyen değişiklikler bağlantı gelince yeniden gönderilir; üstte çevrimdışı şeridi görünür.
+
+Bildirimlerdeki "Tamamlandı" / "10 dk daha" düğmeleri `/?task=<id>&do=complete|extend` bağlantısını açar; uygulama açılışta komutu uygular.

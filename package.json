@@ -8,6 +8,7 @@
     "dev:server": "tsx server/index.ts",
     "build": "tsc -b && tsc --noEmit -p server/tsconfig.json && vite build",
     "lint": "oxlint",
+    "test": "vitest run",
     "preview": "vite preview",
     "start": "node --import tsx server/index.ts"
   },
@@ -51,6 +52,7 @@
     "oxlint": "^1.71.0",
     "tsx": "^4.23.1",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^5.1.1"
   }
 }

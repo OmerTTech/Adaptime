@@ -71,6 +71,15 @@ export interface TaskBlock {
   /** "custom" için haftanın günleri (0 = Pazar). */
   repeatDays?: number[];
   subtasks?: Subtask[];
+  /* --- Devir (carry) alanları --- */
+  /** "once": tek seferlik, "rolling": tamamlanana kadar her gün devreder. */
+  carryPolicy?: "once" | "rolling";
+  /** Devreden görev zincirinin kimliği; başlık değişse de aynı görev sayılır. */
+  originId?: string;
+  /** Bu görev kaç gündür devrediyor. */
+  carryCount?: number;
+  /** Hangi günden devredildi (YYYY-MM-DD). */
+  carriedFrom?: string;
 }
 
 export type ScheduledTask = TaskBlock & {

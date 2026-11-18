@@ -10,6 +10,8 @@ import aiRoutes from "./routes/ai.js";
 import accountabilityRoutes from "./routes/accountability.js";
 import diaryRoutes from "./routes/diary.js";
 import pushRoutes from "./routes/push.js";
+import cronRoutes from "./routes/cron.js";
+import backupRoutes from "./routes/backups.js";
 import { startScheduler } from "./services/accountability.js";
 import { startPushReminders } from "./services/push.js";
 
@@ -121,6 +123,8 @@ app.use("/api/generate-routine", aiRoutes);
 app.use("/api/accountability", accountabilityRoutes);
 app.use("/api/diary", diaryRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/cron", cronRoutes);
+app.use("/api/backups", backupRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -129,6 +133,7 @@ app.get("/api/health", (_req, res) => {
     mongo: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     // Render otomatik olarak doldurur; hangi sürümün yayında olduğunu görmek için.
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
+    cron: process.env.CRON_SECRET ? "configured" : "off",
   });
 });
 

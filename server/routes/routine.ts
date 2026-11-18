@@ -261,7 +261,10 @@ router.post("/:date/missed-action", authMiddleware, async (req: AuthRequest, res
  * bugünün planına devredilir. Kaynak gün "skipped" işaretlenir, böylece
  * iki yerde birden görünmez; silinene veya tamamlanana kadar dolaşım sürer.
  */
-async function rollForwardTodos(userId: string, todayKey: string): Promise<number> {
+export async function rollForwardTodos(
+  userId: string,
+  todayKey: string,
+): Promise<number> {
   const lookback = new Date(`${todayKey}T12:00:00`);
   lookback.setDate(lookback.getDate() - 30);
 
@@ -272,40 +275,58 @@ async function rollForwardTodos(userId: string, todayKey: string): Promise<numbe
   if (previous.length === 0) return 0;
 
   const todayRoutine = await Routine.findOne({ userId, date: todayKey });
-  const titles = new Set(
-    (todayRoutine?.tasks ?? []).map((t: ITaskBlock) =>
-      String(t.title ?? "").trim().toLowerCase(),
-    ),
-  );
+
+  // Aynı görev zinciri başlıkla değil originId ile eşleşir; böylece aynı
+  // başlıklı iki ayrı görev birbirini sessizce yutmaz. originId'si olmayan
+  // eski kayıtlar için başlık yedeği korunur.
+  const seenOrigins = new Set<string>();
+  const seenTitles = new Set<string>();
+  for (const t of todayRoutine?.tasks ?? []) {
+    const origin = String(t.originId ?? "").trim();
+    if (origin) seenOrigins.add(origin);
+    else seenTitles.add(String(t.title ?? "").trim().toLowerCase());
+  }
 
   const carry: Record<string, unknown>[] = [];
-  const yesterday = new Date(`${todayKey}T12:00:00`);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = dateString(yesterday);
 
   for (const past of previous) {
     let changed = false;
     for (const task of past.tasks as ITaskBlock[]) {
-      if (task.status !== "pending") continue;
+      // Tamamlanan görev asla klonlanmaz. Aktif/duraklatılmış görev önce
+      // duraklatılır; geçen süre ve ilerleme korunarak taşınır.
+      if (
+        task.status !== "pending" &&
+        task.status !== "active" &&
+        task.status !== "paused"
+      ) {
+        continue;
+      }
 
-      // Planlı görevler yalnızca dünden devredilir; eski planlar hortlamasın.
-      if (task.startTime && past.date !== yesterdayKey) continue;
+      // Tekrarlayan (ritüel) görevleri repeat kuralı üretir; devir çalışmaz.
+      // Böylece iki mekanizma aynı görevde aynı anda çalışmaz.
+      if (task.repeat) continue;
 
-      const key = String(task.title ?? "").trim().toLowerCase();
-      if (titles.has(key)) {
+      // Varsayılan: saatsiz todo kalıcı, saatli görev tek seferlik.
+      const policy =
+        task.carryPolicy ?? (task.startTime ? "once" : "rolling");
+      if (policy !== "rolling") continue;
+
+      const origin = String(task.originId ?? "").trim();
+      const titleKey = String(task.title ?? "").trim().toLowerCase();
+      if (origin ? seenOrigins.has(origin) : seenTitles.has(titleKey)) {
         task.status = "skipped";
         changed = true;
         continue;
       }
-
-      titles.add(key);
+      if (origin) seenOrigins.add(origin);
+      else seenTitles.add(titleKey);
 
       let scheduledStart: number | undefined;
       let scheduledEnd: number | undefined;
       if (task.startTime) {
-        const origin = new Date(task.startTime);
+        const originTime = new Date(task.startTime);
         const target = new Date(`${todayKey}T00:00:00`);
-        target.setHours(origin.getHours(), origin.getMinutes(), 0, 0);
+        target.setHours(originTime.getHours(), originTime.getMinutes(), 0, 0);
         const duration =
           task.endTime && task.endTime > task.startTime
             ? task.endTime - task.startTime
@@ -334,14 +355,22 @@ async function rollForwardTodos(userId: string, todayKey: string): Promise<numbe
               estimatedMinutes:
                 task.estimatedMinutes ??
                 (task.startTime && task.endTime
-                  ? Math.max(5, Math.round((task.endTime - task.startTime) / 60_000))
+                  ? Math.max(
+                      5,
+                      Math.round((task.endTime - task.startTime) / 60_000),
+                    )
                   : 30),
             }),
         status: "pending",
         carriedFrom: past.date,
+        originId: origin || String((task as { _id?: unknown })._id ?? titleKey),
+        carryPolicy: "rolling",
+        carryCount: (task.carryCount ?? 0) + 1,
         pausedAt: undefined,
         startedAt: undefined,
-        pausedDuration: 0,
+        // Duraklatma süresi ve ilerleme korunur; sıfırlanmaz.
+        pausedDuration: task.pausedDuration ?? 0,
+        progress: task.progress ?? 0,
       });
       task.status = "skipped";
       changed = true;
@@ -359,6 +388,7 @@ async function rollForwardTodos(userId: string, todayKey: string): Promise<numbe
     { userId, date: todayKey },
     {
       $setOnInsert: { date: todayKey, streak: 0 },
+      $inc: { revision: 1 },
       $push: { tasks: { $each: carry } },
     },
     {
@@ -1069,13 +1099,28 @@ router.get("/:date", authMiddleware, async (req: AuthRequest, res) => {
 // Create or update routine
 router.post("/", authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const { date, tasks, dayEndTime, streak } = req.body;
+    const { date, tasks, dayEndTime, streak, baseRevision } = req.body;
     if (!date) {
       return res.status(400).json({ error: "Tarih gerekli" });
     }
 
     // Silinen görevler arşive gider: yanlışlıkla silme geri alınabilir olsun.
     const existing = await Routine.findOne({ userId: req.userId, date });
+
+    // Revision çakışması: günü başka bir cihaz (ya da gece devri) değiştirdiyse
+    // istemci körlemesine üzerine yazmaz; önce kullanıcıya sorulur.
+    if (
+      existing &&
+      typeof baseRevision === "number" &&
+      (existing.revision ?? 0) !== baseRevision
+    ) {
+      return res.status(409).json({
+        error: "Plan başka bir cihazda değişti",
+        conflict: true,
+        revision: existing.revision ?? 0,
+      });
+    }
+
     if (existing) {
       await archiveRemoved(
         String(req.userId),
@@ -1092,6 +1137,7 @@ router.post("/", authMiddleware, async (req: AuthRequest, res) => {
         tasks: tasks || [],
         dayEndTime: dayEndTime || 0,
         streak: streak || 0,
+        revision: (existing?.revision ?? 0) + 1,
       },
       { new: true, upsert: true, runValidators: true },
     ).select("-__v");

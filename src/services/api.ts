@@ -6,6 +6,19 @@ interface ApiOptions {
   token?: string;
 }
 
+/** HTTP durum kodunu taşıyan hata; 409 çakışması buna göre ele alınır. */
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(message: string, status: number, payload?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 export async function apiFetch<T>(
   endpoint: string,
   options: ApiOptions = {},
@@ -31,7 +44,7 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: "API hatası" }));
-    throw new Error(error.error || `HTTP ${res.status}`);
+    throw new ApiError(error.error || `HTTP ${res.status}`, res.status, error);
   }
 
   return res.json();
@@ -80,6 +93,8 @@ export interface RoutineDTO {
   tasks: RoutineTaskDTO[];
   dayEndTime: number;
   streak: number;
+  /** Eşzamanlı kayıt çakışmalarını yakalamak için sürüm numarası. */
+  revision?: number;
 }
 
 export const routineApi = {
@@ -92,10 +107,16 @@ export const routineApi = {
       tasks: unknown[];
       dayEndTime: number;
       streak: number;
+      /** İstemcinin bildiği son sürüm; eşleşmezse sunucu 409 döner. */
+      baseRevision?: number;
     },
     token: string,
   ) =>
-    apiFetch<unknown>("/api/routines", { method: "POST", body: data, token }),
+    apiFetch<{ revision?: number } | null>("/api/routines", {
+      method: "POST",
+      body: data,
+      token,
+    }),
 
   appendTask: (date: string, task: unknown, token: string) =>
     apiFetch<{ ok: boolean; date: string }>(
@@ -286,6 +307,26 @@ export const routineApi = {
   deleteAll: (token: string) =>
     apiFetch<{ success: boolean }>("/api/routines", {
       method: "DELETE",
+      token,
+    }),
+};
+
+// Günlük otomatik yedekler (sunucu, son 7 gün)
+export const backupApi = {
+  list: (token: string) =>
+    apiFetch<{
+      items: Array<{
+        id: string;
+        dateKey: string;
+        createdAt: string;
+        days: number;
+        tasks: number;
+      }>;
+    }>("/api/backups", { token }),
+
+  restore: (id: string, token: string) =>
+    apiFetch<{ ok: boolean; restored: number }>(`/api/backups/${id}/restore`, {
+      method: "POST",
       token,
     }),
 };

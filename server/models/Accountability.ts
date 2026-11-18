@@ -22,11 +22,31 @@ export interface IDailyLaunch {
   items?: IDailyLaunchItem[];
 }
 
+export interface ISummarySettings {
+  /** 08:00 sabah brifingi. */
+  morning: boolean;
+  /** 21:30 gün sonu özeti. */
+  evening: boolean;
+  /** Pazar 20:00 haftalık özet. */
+  weekly: boolean;
+}
+
+const summarySettingsSchema = new Schema<ISummarySettings>(
+  {
+    morning: { type: Boolean, default: true },
+    evening: { type: Boolean, default: true },
+    weekly: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
 export interface IMentorSettings extends Document {
   userId: mongoose.Types.ObjectId;
   enabled: boolean;
   timezone: string;
   hours: number[];
+  /** Sabah/akşam/haftalık özet bildirimleri (Ayarlar > Bildirimler). */
+  summaries: ISummarySettings;
   tone: MentorTone;
   snoozeMinutes: number;
   /** Mentor mesajlarının üst cümle sınırı (1-20). */
@@ -34,6 +54,11 @@ export interface IMentorSettings extends Document {
   aiEnabled: boolean;
   restUntil?: number | null;
   restReason?: string | null;
+  /** Son saatlik mentor bildiriminin slotu ("YYYY-MM-DD:hour").
+   *  Bellekte değil veritabanında tutulur: Render uyku/restart sonrası
+   *  aynı saatte ikinci bildirim gitmez ve her uyanmada tekrar denenir. */
+  lastMentorSlot?: string | null;
+  lastMentorAt?: number | null;
   dailyLaunch?: IDailyLaunch | null;
   createdAt: Date;
   updatedAt: Date;
@@ -47,10 +72,13 @@ const mentorSettingsSchema = new Schema<IMentorSettings>(
     hours: { type: [Number], default: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23] },
     tone: { type: String, enum: ["direct", "balanced", "supportive"], default: "direct" },
     snoozeMinutes: { type: Number, default: 15, min: 5, max: 180 },
+    summaries: { type: summarySettingsSchema, default: () => ({}) },
     maxSentences: { type: Number, default: 8, min: 1, max: 20 },
     aiEnabled: { type: Boolean, default: true },
     restUntil: { type: Number, default: null },
     restReason: { type: String, default: null },
+    lastMentorSlot: { type: String, default: null },
+    lastMentorAt: { type: Number, default: null },
     dailyLaunch: {
       type: {
         date: String,

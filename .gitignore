@@ -39,3 +39,9 @@ TODO.md
 LEARN.mdserver/.env
 server/.env.*
 !.env.example
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

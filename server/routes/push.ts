@@ -31,6 +31,7 @@ router.post("/subscribe", authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: "Geçersiz abonelik" });
     }
 
+    const config = await ensureVapid();
     await PushSubscription.findOneAndUpdate(
       { endpoint },
       {
@@ -39,14 +40,14 @@ router.post("/subscribe", authMiddleware, async (req: AuthRequest, res) => {
           endpoint,
           p256dh,
           auth,
+          publicKey: config.publicKey ?? undefined,
           userAgent: req.headers["user-agent"] ?? undefined,
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
-    const config = await ensureVapid();
-    res.json({ ok: true, enabled: config.enabled });
+    res.json({ ok: true, enabled: config.enabled, publicKey: config.publicKey });
   } catch (error) {
     console.error("Push subscribe error:", error);
     res.status(500).json({ error: "Sunucu hatası" });

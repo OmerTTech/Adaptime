@@ -195,10 +195,11 @@ export default function UnscheduledTasks() {
                 )}
 
                 <span
-                  className={`text-sm flex-1 min-w-0 line-clamp-2 leading-snug ${
+                  className={`text-[15px] font-medium sm:text-sm sm:font-normal flex-1 min-w-0 line-clamp-2 leading-snug ${
                     completed ? "line-through text-text-muted/60" : "text-text"
                   }`}
-                  title={task.title}
+                  title={`${task.title} — çift tıkla düzenle`}
+                  onDoubleClick={() => dispatch(openEditModal(task.id))}
                 >
                   {task.title}
                 </span>

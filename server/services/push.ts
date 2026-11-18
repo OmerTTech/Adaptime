@@ -8,7 +8,7 @@ const webpush =
 import type mongoose from "mongoose";
 import { AppConfig } from "../models/AppConfig.js";
 import { PushSubscription } from "../models/PushSubscription.js";
-import { MentorSettings } from "../models/Accountability.js";
+import { FocusSession, MentorSettings } from "../models/Accountability.js";
 import { Routine } from "../models/Routine.js";
 import { User } from "../models/User.js";
 import { dateKeyInTz } from "./time.js";
@@ -29,10 +29,11 @@ let failureLogged = false;
 /**
  * VAPID anahtarlarını hazırlar.
  *
- * Sıra: `.env` → veritabanında saklanan anahtarlar → yeni üretip veritabanına yaz.
- * Böylece ortam değişkenleri tanımlanmamış sunucularda (ör. panelden env
- * eklenmemiş dağıtımlar) arka plan bildirimleri yine de çalışır; aynı MongoDB'yi
- * kullanan tüm örnekler aynı anahtar çiftini paylaşır.
+ * Sıra: veritabanında saklanan anahtarlar → `.env` → yeni üretip veritabanına yaz.
+ * Veritabanı tek doğruluk kaynağıdır: aynı MongoDB'yi kullanan tüm örnekler
+ * (yerel sunucu + Render) aynı çifti kullanır. `.env` yalnızca veritabanı boşsa
+ * tohum olur ve oradaki çift veritabanına yazılır. Bu sıra tersine çevrildiğinde
+ * env çifti ile veritabanı çifti ayrışıyor ve push servisi 403 veriyordu.
  */
 export async function ensureVapid(): Promise<{
   enabled: boolean;
@@ -44,36 +45,43 @@ export async function ensureVapid(): Promise<{
   pending = (async () => {
     const envPublic = process.env.VAPID_PUBLIC_KEY?.trim();
     const envPrivate = process.env.VAPID_PRIVATE_KEY?.trim();
-    let keys: VapidKeys | null =
+    const envKeys: VapidKeys | null =
       envPublic && envPrivate
         ? { publicKey: envPublic, privateKey: envPrivate }
         : null;
+    let keys: VapidKeys | null = null;
 
-    if (!keys) {
-      try {
-        const stored = await AppConfig.findOne({ key: CONFIG_KEY }).lean();
-        const value = stored?.value as Partial<VapidKeys> | undefined;
-        if (value?.publicKey && value?.privateKey) {
-          keys = { publicKey: value.publicKey, privateKey: value.privateKey };
-        } else {
-          const generated = webpush.generateVAPIDKeys();
-          keys = generated;
-          await AppConfig.findOneAndUpdate(
-            { key: CONFIG_KEY },
-            { $set: { value: generated } },
-            { upsert: true, setDefaultsOnInsert: true },
-          );
-          console.log(
-            "[push] VAPID anahtarları üretildi ve veritabanına kaydedildi",
-          );
-        }
-      } catch (error) {
-        if (!failureLogged) {
+    try {
+      const stored = await AppConfig.findOne({ key: CONFIG_KEY }).lean();
+      const value = stored?.value as Partial<VapidKeys> | undefined;
+      if (value?.publicKey && value?.privateKey) {
+        keys = { publicKey: value.publicKey, privateKey: value.privateKey };
+        // Env'de farklı bir çift varsa uyar: tüm örnekler veritabanındakini kullanır.
+        if (envKeys && envKeys.publicKey !== keys.publicKey && !failureLogged) {
           failureLogged = true;
-          console.error("[push] VAPID anahtarları hazırlanamadı:", error);
+          console.warn(
+            "[push] .env VAPID_PUBLIC_KEY veritabanındaki anahtarla uyuşmuyor; veritabanındaki kullanılıyor. Yeni abonelikler için env'i güncelle veya boş bırak.",
+          );
         }
-        return { enabled: false, publicKey: null };
+      } else {
+        keys = envKeys ?? webpush.generateVAPIDKeys();
+        await AppConfig.findOneAndUpdate(
+          { key: CONFIG_KEY },
+          { $set: { value: keys } },
+          { upsert: true, setDefaultsOnInsert: true },
+        );
+        console.log(
+          envKeys
+            ? "[push] VAPID anahtarları .env'den veritabanına kaydedildi"
+            : "[push] VAPID anahtarları üretildi ve veritabanına kaydedildi",
+        );
       }
+    } catch (error) {
+      if (!failureLogged) {
+        failureLogged = true;
+        console.error("[push] VAPID anahtarları hazırlanamadı:", error);
+      }
+      return { enabled: false, publicKey: null };
     }
 
     try {
@@ -121,6 +129,14 @@ export async function sendPushToUser(
   let sent = 0;
 
   for (const sub of subscriptions) {
+    // Farklı bir VAPID çiftiyle oluşturulmuş eski abonelik: push servisi 403
+    // döndürür. Silinir; istemci bir sonraki açılışta yeni anahtarla yeniden
+    // abone olur (bkz. src/services/push.ts).
+    if (sub.publicKey && sub.publicKey !== config.publicKey) {
+      await PushSubscription.deleteOne({ _id: sub._id });
+      console.warn("[push] eski VAPID anahtarıyla oluşturulmuş abonelik silindi");
+      continue;
+    }
     let delivered = false;
     for (let attempt = 1; attempt <= 3 && !delivered; attempt++) {
       try {
@@ -138,6 +154,14 @@ export async function sendPushToUser(
         const status = (error as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
           await PushSubscription.deleteOne({ _id: sub._id });
+          break;
+        }
+        // 403: abonelik başka bir VAPID çiftiyle oluşturulmuş (eski kayıt).
+        if (status === 403) {
+          await PushSubscription.deleteOne({ _id: sub._id });
+          console.warn(
+            "[push] VAPID uyuşmazlığı: abonelik silindi, cihaz yeniden abone olacak",
+          );
           break;
         }
         if (attempt === 3) {
@@ -173,6 +197,218 @@ export interface PushTickResult {
   mentor: number;
   due: number;
   overdue: number;
+  /** Sabah brifingi + gün sonu + haftalık özet gönderim sayısı. */
+  summaries: number;
+}
+
+/** Ayarlardan açılıp kapanan özet bildirimleri. */
+export interface SummarySettings {
+  morning?: boolean;
+  evening?: boolean;
+  weekly?: boolean;
+}
+
+const SUMMARY_WINDOW_MS = 30 * 60_000;
+
+function minutesOfDay(tz: string, now: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: tz,
+  }).formatToParts(new Date(now));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+function weekdayShort(tz: string, now: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: tz,
+  }).format(new Date(now));
+}
+
+function clockInTz(ms: number, tz: string): string {
+  return new Date(ms).toLocaleTimeString("tr-TR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: tz,
+  });
+}
+
+interface SummaryContext {
+  userId: string;
+  tz: string;
+  dateKey: string;
+  tasks: {
+    title: string;
+    status: string;
+    startTime?: number;
+    endTime?: number;
+    estimatedMinutes?: number;
+  }[];
+  streak: number;
+  summaries: SummarySettings | undefined;
+  now: number;
+}
+
+/**
+ * Sabah brifingi (08:00), gün sonu özeti (21:30) ve pazar haftalık özeti
+ * (20:00). Her biri günde bir kez gider; pencere 30 dakika açık kalır ki
+ * Render uykudan geç uyansa da bildirim kaybolmasın.
+ */
+async function sendSummaries(
+  ctx: SummaryContext,
+  result: PushTickResult,
+): Promise<void> {
+  const { userId, tz, dateKey, tasks, streak, summaries, now } = ctx;
+  const open = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "skipped",
+  );
+  const done = tasks.filter((t) => t.status === "completed");
+  const minutes = minutesOfDay(tz, now);
+
+  const allowed = (key: keyof SummarySettings) => summaries?.[key] !== false;
+  const send = async (
+    kind: string,
+    title: string,
+    body: string,
+    extra?: Partial<PushPayload>,
+  ): Promise<void> => {
+    const key = `${userId}:summary:${kind}:${dateKey}`;
+    if (alreadyNotified.has(key)) return;
+    rememberKey(key);
+    result.summaries += 1;
+    await sendPushToUser(userId, {
+      title,
+      body,
+      tag: key,
+      url: "/",
+      ...extra,
+    });
+  };
+
+  // 08:00 — günün planı.
+  if (allowed("morning") && minutes >= 8 * 60 && minutes < 8 * 60 + 30) {
+    if (tasks.length === 0) {
+      await send(
+        "morning",
+        "Günaydın — plan boş",
+        "Bugün için henüz görev yok. İlk görevi eklemek için bir dakika ayır.",
+      );
+    } else {
+      const plannedMinutes = Math.round(
+        tasks.reduce((total, task) => {
+          if (
+            task.startTime &&
+            task.endTime &&
+            task.endTime > task.startTime
+          ) {
+            return total + (task.endTime - task.startTime) / 60_000;
+          }
+          return total + (task.estimatedMinutes ?? 30);
+        }, 0),
+      );
+      const firstThree = [...open]
+        .sort((a, b) => (a.startTime ?? Infinity) - (b.startTime ?? Infinity))
+        .slice(0, 3)
+        .map((task) =>
+          task.title.length > 28 ? `${task.title.slice(0, 27)}…` : task.title,
+        );
+      const list = firstThree.map((title) => `“${title}”`).join(", ");
+      await send(
+        "morning",
+        "Günaydın — günün planı",
+        `${tasks.length} görev, ${open.length} açık, ~${plannedMinutes} dk odak hedefi. İlk üç: ${list}.`,
+      );
+    }
+  }
+
+  // 21:30 — gün sonu özeti.
+  if (
+    allowed("evening") &&
+    minutes >= 21 * 60 + 30 &&
+    minutes < 21 * 60 + 30 + SUMMARY_WINDOW_MS / 60_000
+  ) {
+    if (tasks.length > 0) {
+      await send(
+        "evening",
+        "Gün sonu özeti",
+        `Bugün ${done.length}/${tasks.length} görev tamamlandı.` +
+          (open.length > 0
+            ? ` ${open.length} görev açık kaldı, yarına taşıyabilirsin.`
+            : " Hepsi bitti.") +
+          (streak > 0 ? ` Seri: ${streak} gün.` : ""),
+        open.length > 0
+          ? {
+              // Tek dokunuşla açık görevleri yarına devret.
+              actions: [
+                { action: "carry", title: "Yarına devret" },
+                { action: "open", title: "Planı aç" },
+              ],
+              actionUrls: { carry: "/?do=carry", open: "/" },
+            }
+          : undefined,
+      );
+    }
+  }
+
+  // Pazar 20:00 — haftalık özet.
+  if (
+    allowed("weekly") &&
+    weekdayShort(tz, now) === "Sun" &&
+    minutes >= 20 * 60 &&
+    minutes < 20 * 60 + 30
+  ) {
+    const weekStart = dateKeyInTz(new Date(now - 6 * 86_400_000), tz);
+    const rows = await Routine.find({
+      userId,
+      date: { $gte: weekStart, $lte: dateKey },
+    }).select("date tasks.status");
+
+    const sessions = await FocusSession.find({
+      userId,
+      dateKey: { $gte: weekStart, $lte: dateKey },
+      mode: "focus",
+    }).select("actualMinutes");
+    const focusMinutes = Math.round(
+      sessions.reduce((sum, session) => sum + (session.actualMinutes ?? 0), 0),
+    );
+
+    let total = 0;
+    let completed = 0;
+    let bestDay = "";
+    let bestCount = 0;
+    for (const row of rows) {
+      const dayDone = row.tasks.filter((t) => t.status === "completed").length;
+      total += row.tasks.length;
+      completed += dayDone;
+      if (dayDone > bestCount) {
+        bestCount = dayDone;
+        bestDay = row.date;
+      }
+    }
+
+    if (total > 0) {
+      const pct = Math.round((completed / total) * 100);
+      const best = bestDay
+        ? ` En çok ${new Intl.DateTimeFormat("tr-TR", {
+            weekday: "long",
+            timeZone: "UTC",
+          }).format(new Date(`${bestDay}T12:00:00Z`))}: ${bestCount} görev.`
+        : "";
+      const focusText =
+        focusMinutes > 0
+          ? ` ${Math.floor(focusMinutes / 60)} sa ${focusMinutes % 60} dk odak.`
+          : "";
+      await send(
+        "weekly",
+        "Haftalık özet",
+        `Bu hafta ${completed}/${total} görev tamamlandı (%${pct}).${focusText}${best}`,
+      );
+    }
+  }
 }
 
 let pushTickRunner: (() => Promise<PushTickResult>) | null = null;
@@ -182,7 +418,7 @@ let pushInFlight: Promise<PushTickResult> | null = null;
 export function runPushTick(): Promise<PushTickResult> {
   if (pushInFlight) return pushInFlight;
   if (!pushTickRunner)
-    return Promise.resolve({ mentor: 0, due: 0, overdue: 0 });
+    return Promise.resolve({ mentor: 0, due: 0, overdue: 0, summaries: 0 });
   pushInFlight = pushTickRunner().finally(() => {
     pushInFlight = null;
   });
@@ -195,7 +431,7 @@ export function runPushTick(): Promise<PushTickResult> {
  */
 export function startPushReminders() {
   const tick = async (): Promise<PushTickResult> => {
-    const result: PushTickResult = { mentor: 0, due: 0, overdue: 0 };
+    const result: PushTickResult = { mentor: 0, due: 0, overdue: 0, summaries: 0 };
     try {
       const config = await ensureVapid();
       if (!config.enabled) return result;
@@ -213,17 +449,46 @@ export function startPushReminders() {
         // okunur; gece sessizliği sabit değil, ayarlardaki saatlere uyar.
         const settings = await MentorSettings.findOne({
           userId: user._id,
-        }).select("enabled hours timezone");
+        })        .select("enabled hours timezone summaries lastMentorSlot");
 
         const tz =
           settings?.timezone ||
           (user as unknown as { timezone?: string }).timezone ||
           "Asia/Baku";
         const dateKey = dateKeyInTz(new Date(), tz);
+        const localHour = Number(
+          new Intl.DateTimeFormat("en-US", {
+            hour: "2-digit",
+            hour12: false,
+            timeZone: tz,
+          }).format(new Date()),
+        );
+        const localMinute = Number(
+          new Intl.DateTimeFormat("en-US", {
+            minute: "2-digit",
+            timeZone: tz,
+          }).format(new Date()),
+        );
+
         const routine = await Routine.findOne({
           userId: user._id,
           date: dateKey,
-        }).select("tasks");
+        }).select("tasks streak");
+
+        // Özetler plan boşken de anlamlı: görev yoksa da kullanıcı bilgilendirilir.
+        await sendSummaries(
+          {
+            userId: String(user._id),
+            tz,
+            dateKey,
+            tasks: routine?.tasks ?? [],
+            streak: routine?.streak ?? 0,
+            summaries: settings?.summaries,
+            now,
+          },
+          result,
+        );
+
         if (!routine) continue;
 
         for (const task of routine.tasks) {
@@ -256,19 +521,6 @@ export function startPushReminders() {
 
         // Saatlik mentor kontrolü: seçili saatlerin ilk 10 dakikasında,
         // o saatte hâlâ bekleyen iş varsa telefonu dürt.
-        const localHour = Number(
-          new Intl.DateTimeFormat("en-US", {
-            hour: "2-digit",
-            hour12: false,
-            timeZone: tz,
-          }).format(new Date()),
-        );
-        const localMinute = Number(
-          new Intl.DateTimeFormat("en-US", {
-            minute: "2-digit",
-            timeZone: tz,
-          }).format(new Date()),
-        );
 
         // Odak süresi bitti ama görev hâlâ çalışıyor: uygulama kapalıysa
         // uygulama içi alarm çalmaz. Telefona bir kez hatırlatma gönder.
@@ -317,20 +569,21 @@ export function startPushReminders() {
           }
         }
 
-        // Saat başına tek gönderim anahtarı (mentorKey) sayesinde pencereyi
-        // saat sonuna kadar açık tutmak güvenli: sunucu uykudan 20:14'te
-        // uyanırsa 20:00 kontrolü yine de bir kez gider (telafi).
-        if (
-          settings?.enabled &&
-          settings.hours?.includes(localHour) &&
-          localMinute <= 50
-        ) {
+        // Saat başına en fazla bir gönderim. Slot veritabanında tutulur:
+        // Render uykuya dalıp 20:47'de uyansa bile 20:00 kontrolü gider;
+        // aynı saat içinde ikinci kez (restart/cron) gitmez. Pencere saat
+        // sonuna kadar açık olduğu için kaçırma riski azalır.
+        if (settings?.enabled && settings.hours?.includes(localHour)) {
           const open = routine.tasks.filter(
             (t) => t.status !== "completed" && t.status !== "skipped",
           );
           if (open.length > 0) {
             const mentorKey = `${String(user._id)}:mentor:${dateKey}:${localHour}`;
-            if (!alreadyNotified.has(mentorKey)) {
+            const slotKey = `${dateKey}:${localHour}`;
+            if (
+              !alreadyNotified.has(mentorKey) &&
+              settings.lastMentorSlot !== slotKey
+            ) {
               rememberKey(mentorKey);
               const head = open[0];
               const late = localMinute > 10 ? " (gecikmeli)" : "";
@@ -345,6 +598,10 @@ export function startPushReminders() {
                 tag: mentorKey,
                 url: "/",
               });
+              await MentorSettings.updateOne(
+                { userId: user._id },
+                { $set: { lastMentorSlot: slotKey, lastMentorAt: now } },
+              );
             }
           }
         }

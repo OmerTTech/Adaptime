@@ -5,6 +5,8 @@ export interface IPushSubscription extends Document {
   endpoint: string;
   p256dh: string;
   auth: string;
+  /** Aboneliğin oluşturulduğu VAPID genel anahtarı (uyuşmazlıkta silinir). */
+  publicKey?: string;
   userAgent?: string;
   createdAt: Date;
 }
@@ -20,6 +22,7 @@ const pushSubscriptionSchema = new Schema<IPushSubscription>(
     endpoint: { type: String, required: true, unique: true },
     p256dh: { type: String, required: true },
     auth: { type: String, required: true },
+    publicKey: { type: String },
     userAgent: { type: String },
   },
   { timestamps: true },

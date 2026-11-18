@@ -197,6 +197,12 @@ export interface MentorSettings {
   snoozeMinutes: number;
   /** Mentor yanıtlarının üst cümle sınırı (1-20). */
   maxSentences: number;
+  /** Sabah / gün sonu / haftalık özet bildirimleri. */
+  summaries?: {
+    morning: boolean;
+    evening: boolean;
+    weekly: boolean;
+  };
   aiEnabled: boolean;
   restUntil: number | null;
   restReason: string | null;

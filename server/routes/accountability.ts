@@ -83,6 +83,19 @@ router.put("/settings", authMiddleware, async (req: AuthRequest, res) => {
       settings.hours = hours;
     }
 
+    if (body.summaries && typeof body.summaries === "object") {
+      // Alan alan güncellenir: yalnızca "morning" gönderilirse diğerleri korunur.
+      settings.summaries = {
+        morning: settings.summaries?.morning !== false,
+        evening: settings.summaries?.evening !== false,
+        weekly: settings.summaries?.weekly !== false,
+      };
+      for (const key of ["morning", "evening", "weekly"] as const) {
+        const value = body.summaries[key];
+        if (typeof value === "boolean") settings.summaries[key] = value;
+      }
+    }
+
     if (
       body.tone === "direct" ||
       body.tone === "balanced" ||

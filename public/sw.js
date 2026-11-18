@@ -1,6 +1,10 @@
 /* Adaptime service worker — kabuk önbelleği + arka plan bildirimleri. */
-const CACHE = "adaptime-shell-v3";
+const CACHE = "adaptime-shell-v4";
+// API yanıtları ayrı önbellekte: app shell güncellenirken silinmesin.
+const API_CACHE = "adaptime-api-v1";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg"];
+// Bu uçlar önbelleğe alınmaz (oturum, abonelik, cron).
+const API_NO_CACHE = ["/api/auth/", "/api/push/", "/api/cron/"];
 // Geliştirme modunda kayıt ?dev=1 ile yapılır: önbellek kullanılmaz, yalnızca push çalışır.
 const DEV = new URL(self.location.href).searchParams.get("dev") === "1";
 
@@ -24,12 +28,26 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)),
+          keys
+            .filter((key) => key !== CACHE && key !== API_CACHE)
+            .map((key) => caches.delete(key)),
         ),
       )
       .then(() => self.clients.claim()),
   );
 });
+
+/** Aynı URL'i farklı oturumlar için ayrı önbellekler: token'ın kısa hash'i. */
+async function apiCacheKey(request) {
+  const auth = request.headers.get("authorization") || "anon";
+  let hash = 5381;
+  for (let i = 0; i < auth.length; i += 1) {
+    hash = (hash * 33) ^ auth.charCodeAt(i);
+  }
+  const url = new URL(request.url);
+  url.searchParams.set("__u", String(hash >>> 0));
+  return new Request(url.toString(), { method: "GET" });
+}
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
@@ -39,8 +57,36 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  // API çağrılarını önbelleğe alma; çevrimdışıyken uygulama kendi durumunu kullanır.
-  if (url.pathname.startsWith("/api/")) return;
+
+  // API: önce ağ, olmazsa son başarılı yanıt (network-first + cache-fallback).
+  // Önbellek anahtarı token'a göre ayrılır; aynı tarayıcıda hesap değişince
+  // yeni kullanıcı eski kullanıcının verisini görmez.
+  if (url.pathname.startsWith("/api/")) {
+    if (API_NO_CACHE.some((prefix) => url.pathname.startsWith(prefix))) return;
+    event.respondWith(
+      (async () => {
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            const cache = await caches.open(API_CACHE);
+            cache.put(await apiCacheKey(request), response.clone());
+          }
+          return response;
+        } catch {
+          const cached = await caches.match(await apiCacheKey(request));
+          if (cached) return cached;
+          return new Response(
+            JSON.stringify({ error: "Çevrimdışı", offline: true }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+      })(),
+    );
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(

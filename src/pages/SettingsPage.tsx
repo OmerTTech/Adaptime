@@ -40,6 +40,7 @@ import {
   Bell,
   BellOff,
   BrainCircuit,
+  CalendarClock,
   ListOrdered,
   Clock3,
   Database,
@@ -49,6 +50,7 @@ import {
   Palette,
   Play,
   Settings,
+  Share,
   Trash2,
   Upload,
   User,
@@ -100,6 +102,44 @@ const TIMEZONES = [
   "UTC",
 ];
 
+const SUMMARY_TOGGLES: {
+  key: "morning" | "evening" | "weekly";
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "morning",
+    label: "08:00 sabah brifingi",
+    hint: "Günün ilk görevi ve saat",
+  },
+  {
+    key: "evening",
+    label: "21:30 gün sonu özeti",
+    hint: "Tamamlanan / kalan görev",
+  },
+  {
+    key: "weekly",
+    label: "Pazar 20:00 haftalık özet",
+    hint: "Son 7 günün toplamı",
+  },
+];
+
+/** iPhone'da Safari sekmesi ana ekrana eklenmemişse rehber gösterilir. */
+function needsIosInstallGuide(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent;
+  const ios =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!ios) return false;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true;
+  return !standalone;
+}
+
 const TONES: { value: MentorTone; label: string; hint: string }[] = [
   { value: "direct", label: "Doğrudan", hint: "Net ve disiplinli" },
   { value: "balanced", label: "Dengeli", hint: "Net ama destekleyici" },
@@ -129,10 +169,18 @@ export default function SettingsPage() {
   const diaryEntries = useAppSelector((s) => s.diary.entries);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [soundMessage, setSoundMessage] = useState<string | null>(null);
+  const [iosGuide, setIosGuide] = useState(false);
+  // Özet anahtarları: sunucu ayarı yoksa üçü de açık kabul edilir.
+  const summaryState = {
+    morning: settings?.summaries?.morning !== false,
+    evening: settings?.summaries?.evening !== false,
+    weekly: settings?.summaries?.weekly !== false,
+  };
 
   useEffect(() => {
     setPermission(notificationPermission());
     void pushSubscriptionState().then(setPushState);
+    setIosGuide(needsIosInstallGuide());
   }, []);
 
   const handleAvatarFile = async (file: File | undefined) => {
@@ -742,9 +790,78 @@ export default function SettingsPage() {
 
           <p className="text-[10px] text-text-muted/70 mt-2">
             Android'de bildirim için site <strong>https</strong> ile açılmalı
-            (LAN IP'si http olmaz) ve Chrome'a bildirim izni verilmeli.
+            (LAN IP'si http olmaz) ve Chrome'a bildirim izni verilmeli. Bildirimler gecikirse: Android Ayarlar → Uygulamalar → Chrome → Pil → Kısıtlamasız.
           </p>
         </div>
+
+        {/* Sabah / akşam / haftalık özet bildirimleri */}
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="flex items-center gap-2 text-sm font-medium text-text">
+            <CalendarClock size={16} className="text-primary" />
+            Özet bildirimleri
+          </div>
+          <p className="text-[10px] text-text-muted mt-1">
+            Sunucu gönderir; uygulama kapalıyken de gelir. Arka plan
+            bildirimleri açık olmalı. AI kotada değilse mentor mesajları kural
+            tabanlıdır; bildirim başlıkları her zaman şablondur.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {SUMMARY_TOGGLES.map(({ key, label, hint }) => {
+              const on = summaryState[key];
+              return (
+                <li key={key} className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] text-text leading-snug">{label}</p>
+                    <p className="text-[10px] text-text-muted">{hint}</p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      patch({ summaries: { ...summaryState, [key]: !on } })
+                    }
+                    role="switch"
+                    aria-checked={on}
+                    aria-label={label}
+                    disabled={!settings || !token}
+                    className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${
+                      on ? "bg-primary" : "bg-border"
+                    } disabled:opacity-50`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                        on ? "left-[18px]" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {iosGuide && (
+          <div className="mt-3 pt-3 border-t border-border">
+            <div className="flex items-center gap-2 text-sm font-medium text-text">
+              <Share size={16} className="text-primary" />
+              iPhone'da ana ekrana ekle
+            </div>
+            <ol className="mt-1.5 space-y-1 text-[10px] text-text-muted list-decimal list-inside">
+              <li>Bu sayfayı Safari'de aç (Chrome'da yükleme olmaz).</li>
+              <li>
+                Alt bardaki <strong>Paylaş</strong> düğmesine dokun.
+              </li>
+              <li>
+                <strong>Ana Ekrana Ekle</strong> → <strong>Ekle</strong>.
+              </li>
+              <li>
+                Uygulamayı ana ekrandan aç, sonra burada bildirimleri aç.
+              </li>
+            </ol>
+            <p className="text-[10px] text-text-muted/70 mt-1">
+              iOS 16.4+ için push bildirimleri yalnızca ana ekrana eklenmiş
+              uygulamada çalışır; Safari sekmesinde çalışmaz.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="p-4 rounded-xl bg-surface border border-border">

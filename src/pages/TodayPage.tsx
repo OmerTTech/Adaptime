@@ -4,10 +4,12 @@ import {
   loadTodayRoutine,
   loadRoutineHistory,
   saveRoutineToBackend,
+  flushPendingWrites,
   migrateDates,
   skipTask,
   resetRoutine,
   setStreak,
+  type SyncConflictDiff,
 } from "@/store/slices/routineSlice";
 import {
   setActivePage,
@@ -17,6 +19,7 @@ import {
 import { loadAccountabilityState } from "@/store/slices/mentorSlice";
 import { useAuth } from "@/contexts/AuthContext";
 import { routineApi } from "@/services/api";
+import { refreshPushSubscription } from "@/services/push";
 import { useAccountabilityEngine } from "@/hooks/useAccountabilityEngine";
 import { useFocusGuard } from "@/hooks/useFocusGuard";
 import { useNotificationAction } from "@/hooks/useNotificationAction";
@@ -77,6 +80,17 @@ const NAV: { page: PageName; label: string; icon: typeof Sun }[] = [
   { page: "settings", label: "Ayarlar", icon: Settings },
 ];
 
+/** 409 çakışmasında "bu cihazda ne farklı" cümlesi. */
+function describeConflict(diff: SyncConflictDiff | null): string | null {
+  if (!diff) return null;
+  const parts: string[] = [];
+  if (diff.added > 0) parts.push(`${diff.added} yeni görev`);
+  if (diff.removed > 0) parts.push(`${diff.removed} silinmiş görev`);
+  if (diff.changed > 0) parts.push(`${diff.changed} değişmiş görev`);
+  if (parts.length === 0) return null;
+  return `Bu cihazdaki planla sunucudaki plan farklı: ${parts.join(", ")}.`;
+}
+
 function greeting(): string {
   const hour = new Date().getHours();
   if (hour < 6) return "İyi geceler";
@@ -94,12 +108,18 @@ export default function TodayPage() {
   const tasks = routine?.tasks ?? [];
   // 409: başka bir cihaz/gün devri planı değiştirdi.
   const syncConflict = useAppSelector((s) => s.routine.syncConflict);
+  const syncConflictDiff = useAppSelector((s) => s.routine.syncConflictDiff);
   // Çevrimdışıyken kaydedilemeyen değişiklik var mı?
   const pendingSave = useAppSelector((s) => s.routine.pendingSave);
   const online = useOnlineStatus();
   const selectedDate = useAppSelector((state) => state.ui.selectedDate);
   // Takvimde bugün dışında bir gün seçiliyse o günün planı gösterilir.
   const isTodayView = selectedDate === getTodayString();
+
+  // Bildirim aboneliği eski bir VAPID anahtarıyla kalmışsa sessizce yenile.
+  useEffect(() => {
+    if (token) void refreshPushSubscription(token);
+  }, [token]);
 
   useAccountabilityEngine(token);
   // Odak sayacı açık kalmışsa süreyi saymaz; süre bitince arka plan bildirimi.
@@ -218,11 +238,11 @@ export default function TodayPage() {
     };
   }, [token, routine, syncConflict, dispatch]);
 
-  // Çevrimdışıyken kaydedilemeyen değişiklikler: bağlantı gelince yeniden gönder.
+  // Çevrimdışıyken IndexedDB kuyruğuna giren yazmalar: bağlantı gelince gönder.
   useEffect(() => {
-    if (!online || !pendingSave || !token || !routine) return;
-    dispatch(saveRoutineToBackend({ routine, token }));
-  }, [online, pendingSave, token, routine, dispatch]);
+    if (!online || !pendingSave || !token) return;
+    dispatch(flushPendingWrites());
+  }, [online, pendingSave, token, dispatch]);
 
   const isAddModalOpen = useAppSelector((state) => state.ui.isAddModalOpen);
   const isEditModalOpen = useAppSelector((state) => state.ui.isEditModalOpen);
@@ -334,6 +354,11 @@ export default function TodayPage() {
               Bu plan başka bir cihazda değişti. Otomatik kayıt, sen karar verene
               kadar durduruldu.
             </span>
+            {describeConflict(syncConflictDiff) && (
+              <span className="basis-full leading-snug text-text-muted">
+                {describeConflict(syncConflictDiff)}
+              </span>
+            )}
             <button
               onClick={() => token && dispatch(loadTodayRoutine(token))}
               className="px-2.5 py-1 rounded-lg bg-primary text-white text-[11px] font-medium hover:bg-primary-hover transition-colors"

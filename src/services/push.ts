@@ -11,6 +11,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
+/** Uint8Array → base64url (applicationServerKey ile karşılaştırmak için). */
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Aboneliğin kullandığı VAPID anahtarı sunucudakiyle aynı mı? */
+function sameKey(sub: PushSubscription, publicKey: string): boolean {
+  const used = sub.options?.applicationServerKey;
+  if (!used) return false;
+  return toBase64Url(new Uint8Array(used)) === publicKey.replace(/=+$/, "");
+}
+
 export function pushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -93,7 +107,17 @@ export async function enablePush(
   }
 
   const reg = await registration();
-  const existing = await reg.pushManager.getSubscription();
+  let existing = await reg.pushManager.getSubscription();
+  // Tarayıcıdaki abonelik eski bir sunucu anahtarıyla oluşturulduysa push
+  // servisi 403 verir. Anahtar değiştiyse aboneliği tazele.
+  if (existing && !sameKey(existing, publicKey)) {
+    try {
+      await existing.unsubscribe();
+    } catch {
+      /* yoksay: yeni abonelik yine de denenir */
+    }
+    existing = null;
+  }
   const subscription =
     existing ??
     (await reg.pushManager.subscribe({
@@ -103,6 +127,35 @@ export async function enablePush(
 
   await pushApi.subscribe(subscription.toJSON(), token);
   return { ok: true };
+}
+
+/**
+ * Uygulama açılışında sessiz onarım: tarayıcıdaki abonelik sunucudaki VAPID
+ * anahtarıyla oluşturulmadıysa yenilenir ve sunucuya yazılır. Böylece eski
+ * anahtarla kalmış cihazlar kullanıcı bir şey yapmadan tekrar çalışır.
+ */
+export async function refreshPushSubscription(token: string): Promise<void> {
+  try {
+    if (!pushSupported() || Notification.permission !== "granted") return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    let existing = await reg?.pushManager.getSubscription();
+    if (!existing) return;
+
+    const { publicKey, enabled } = await pushApi.key();
+    if (!enabled || !publicKey) return;
+
+    if (!sameKey(existing, publicKey)) {
+      await existing.unsubscribe();
+      existing = await (await registration()).pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+      });
+    }
+
+    await pushApi.subscribe(existing.toJSON(), token);
+  } catch {
+    /* sessiz: bir sonraki açılışta yeniden denenir */
+  }
 }
 
 export async function disablePush(token: string): Promise<void> {

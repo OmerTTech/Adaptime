@@ -52,6 +52,7 @@ export default function AddTaskModal() {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState("");
+  const [firstAction, setFirstAction] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [category, setCategory] = useState<TaskCategory>("work");
   const [deadline, setDeadline] = useState("");
@@ -77,6 +78,7 @@ export default function AddTaskModal() {
       category,
       ...(deadlineTs && Number.isFinite(deadlineTs) ? { deadline: deadlineTs } : {}),
       ...(description.trim() ? { description: description.trim() } : {}),
+      ...(firstAction.trim() ? { firstAction: firstAction.trim() } : {}),
       ...(parallel ? { parallel: true } : {}),
       ...(repeat ? { repeat, repeatDays: repeat === "custom" ? repeatDays : undefined } : {}),
     };
@@ -311,6 +313,23 @@ export default function AddTaskModal() {
               placeholder="Örn: 45"
               className="bg-background border-border text-text"
             />
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              İlk 2 dakikada ne yapacaksın?{" "}
+              <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <Input
+              value={firstAction}
+              onChange={(e) => setFirstAction(e.target.value)}
+              placeholder="Örn: Dosyayı aç, başlığı yaz"
+              className="bg-background border-border text-text"
+              maxLength={120}
+            />
+            <p className="text-[10px] text-text-muted/80 mt-1 leading-snug">
+              Görev büyük görünüyorsa başlamayı kolaylaştırır: tek küçük adım.
+            </p>
           </div>
 
           <div className="space-y-1.5">

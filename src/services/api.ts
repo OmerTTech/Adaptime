@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+export const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 interface ApiOptions {
   method?: string;
@@ -168,10 +169,19 @@ export const routineApi = {
       }>;
     }>(`/api/routines/unfinished${date ? `?date=${date}` : ""}`, { token }),
 
-  carryAll: (date: string, action: "move" | "skip", token: string) =>
+  carryAll: (
+    date: string,
+    action: "move" | "skip",
+    token: string,
+    targetDate?: string,
+  ) =>
     apiFetch<{ ok: boolean; moved?: number; skipped?: number }>(
       `/api/routines/${date}/carry-all`,
-      { method: "POST", body: { action }, token },
+      {
+        method: "POST",
+        body: targetDate ? { action, targetDate } : { action },
+        token,
+      },
     ),
 
   archive: (token: string, limit = 20) =>

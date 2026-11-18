@@ -35,6 +35,7 @@ export default function AddRoutineFAB() {
       )}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? "Menüyü kapat" : "Görev ekle"}
         className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${
           isOpen
             ? "bg-surface border border-border rotate-45"

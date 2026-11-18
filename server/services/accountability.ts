@@ -40,6 +40,11 @@ export interface SettingsPatch {
   enabled?: boolean;
   timezone?: string;
   hours?: number[];
+  summaries?: {
+    morning?: boolean;
+    evening?: boolean;
+    weekly?: boolean;
+  };
   tone?: MentorTone;
   snoozeMinutes?: number;
   maxSentences?: number;
@@ -53,6 +58,11 @@ export function sanitizeSettings(settings: IMentorSettings) {
     enabled: settings.enabled,
     timezone: settings.timezone,
     hours: [...(settings.hours ?? DEFAULT_HOURS)].sort((a, b) => a - b),
+    summaries: {
+      morning: settings.summaries?.morning !== false,
+      evening: settings.summaries?.evening !== false,
+      weekly: settings.summaries?.weekly !== false,
+    },
     tone: settings.tone,
     snoozeMinutes: settings.snoozeMinutes,
     maxSentences: settings.maxSentences ?? 8,
@@ -256,7 +266,10 @@ async function processSettings(settings: IMentorSettings): Promise<number> {
   // 1) Planlı saatlik kontrol (dinlenme modunda değilse)
   const resting = typeof settings.restUntil === "number" && settings.restUntil > now;
   const hours = settings.hours ?? DEFAULT_HOURS;
-  if (!resting && hours.includes(hour) && minute <= 45) {
+  // Pencere saat sonuna kadar açık: Render uykudan 20:47'de uyansa da
+  // 20:00 kontrolü bir kez üretilir. `dedupeKey` aynı saatte ikinci
+  // kontrolü engeller, bu yüzden pencereyi dar tutmaya gerek yok.
+  if (!resting && hours.includes(hour)) {
     const dedupeKey = `h:${dateKey}:${hour}`;
     const exists = await MentorCheck.findOne({
       userId: settings.userId,

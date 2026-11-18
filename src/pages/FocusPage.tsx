@@ -14,6 +14,7 @@ import {
 } from "@/store/slices/focusSlice";
 import { loadAccountabilityState, saveFocusSession } from "@/store/slices/mentorSlice";
 import { playSound } from "@/services/sound";
+import { useWakeLock } from "@/hooks/useWakeLock";
 import { Coffee, Loader2, Pause, Play, Square, Timer, CheckCircle2 } from "lucide-react";
 
 export default function FocusPage() {
@@ -27,6 +28,8 @@ export default function FocusPage() {
   const [customBreak, setCustomBreak] = useState(String(focus.breakMinutes));
   const [savingSession, setSavingSession] = useState(false);
   const finishing = useRef(false);
+  // Odak sırasında ekran uyumasın (destekleyen tarayıcılarda).
+  useWakeLock(focus.running && focus.phase === "focus");
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);

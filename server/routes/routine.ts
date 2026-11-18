@@ -440,7 +440,10 @@ router.get("/unfinished", authMiddleware, async (req: AuthRequest, res) => {
 router.post("/:date/carry-all", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { date } = req.params;
-    const { action } = req.body as { action?: "move" | "skip" };
+    const { action, targetDate } = req.body as {
+      action?: "move" | "skip";
+      targetDate?: string;
+    };
     if (action !== "move" && action !== "skip") {
       return res.status(400).json({ error: "Geçersiz işlem" });
     }
@@ -460,12 +463,17 @@ router.post("/:date/carry-all", authMiddleware, async (req: AuthRequest, res) =>
       return res.json({ ok: true, skipped: unfinished.length });
     }
 
+    // Hedef gün: akşam özetindeki "yarına devret" yarını gönderir;
+    // diğer çağrılar bugüne taşır.
     const todayKey = dateString(new Date());
-    if (todayKey === date) {
+    const targetKey =
+      targetDate && parseDate(targetDate) ? targetDate : todayKey;
+    if (targetKey === date) {
       return res.json({ ok: true, moved: 0 });
     }
 
     const now = Date.now();
+    const futureTarget = targetKey > todayKey;
     const clones = unfinished.map((t: ITaskBlock) => {
       const duration =
         t.originalDuration ??
@@ -473,15 +481,19 @@ router.post("/:date/carry-all", authMiddleware, async (req: AuthRequest, res) =>
       let start: number | undefined;
       if (t.startTime) {
         const src = new Date(t.startTime);
-        const candidate = new Date();
+        const candidate = new Date(`${targetKey}T00:00:00`);
         candidate.setHours(src.getHours(), src.getMinutes(), 0, 0);
-        if (candidate.getTime() > now) start = candidate.getTime();
+        // Yarın için saat korunur; bugüne taşırken geçmiş saatler atlanır.
+        if (futureTarget || candidate.getTime() > now) {
+          start = candidate.getTime();
+        }
       }
       return {
         title: t.title,
         description: t.description,
         color: t.color,
         status: "pending",
+        carriedFrom: date,
         priority: t.priority ?? "medium",
         category: t.category ?? "work",
         repeat: t.repeat,
@@ -513,9 +525,9 @@ router.post("/:date/carry-all", authMiddleware, async (req: AuthRequest, res) =>
     );
 
     await Routine.findOneAndUpdate(
-      { userId: req.userId, date: todayKey },
+      { userId: req.userId, date: targetKey },
       {
-        $setOnInsert: { date: todayKey, streak: 0 },
+        $setOnInsert: { date: targetKey, streak: 0 },
         $push: { tasks: { $each: clones } },
         $max: { dayEndTime: dayEnd },
       },
@@ -1118,6 +1130,12 @@ router.post("/", authMiddleware, async (req: AuthRequest, res) => {
         error: "Plan başka bir cihazda değişti",
         conflict: true,
         revision: existing.revision ?? 0,
+        // İstemci "bu cihazda ne farklı" özetini gösterebilsin diye sade liste.
+        serverTasks: existing.tasks.map((task) => ({
+          id: String((task as { _id?: unknown })._id ?? ""),
+          title: task.title,
+          status: task.status,
+        })),
       });
     }
 

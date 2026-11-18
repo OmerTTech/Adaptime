@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { startTask } from "@/store/slices/routineSlice";
+import { pauseTask, startTask } from "@/store/slices/routineSlice";
 import { openEditModal } from "@/store/slices/uiSlice";
 import { isScheduled, PRIORITY_LABEL, type TaskBlock } from "@/types";
 import { formatTime } from "@/utils";
@@ -92,6 +92,7 @@ export default function NowNextCard() {
   const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
   const [open, setOpen] = useState(false);
+  const [alternatives, setAlternatives] = useState(false);
   const [limit, setLimit] = useState(5);
 
   const ranked = useMemo(() => {
@@ -107,6 +108,12 @@ export default function NowNextCard() {
   }, [tasks]);
 
   if (ranked.length === 0) return null;
+
+  // 2.4: aynı anda birden çok görev çalışıyorsa odak dağılır. Paralel
+  // işaretlenmemiş aktif görevler için tek tıkla "diğerlerini duraklat".
+  const activeTasks = tasks.filter(
+    (t) => t.status === "active" && !t.parallel,
+  );
 
   const top = ranked[0];
   const shown = !open
@@ -146,11 +153,34 @@ export default function NowNextCard() {
         </button>
       </div>
 
+      {activeTasks.length > 1 && (
+        <div className="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-2 py-1.5">
+          <p className="text-[10px] text-warning leading-snug">
+            {activeTasks.length} görev aynı anda çalışıyor. Tek göreve odaklanmak
+            için diğerlerini duraklat.
+          </p>
+          <button
+            onClick={() =>
+              activeTasks.slice(1).forEach((task) => dispatch(pauseTask(task.id)))
+            }
+            className="mt-1 text-[10px] font-medium text-warning hover:underline"
+          >
+            Diğerlerini duraklat
+          </button>
+        </div>
+      )}
+
       {!open && (
         <>
           <p className="text-sm font-semibold text-text mb-2 break-words">
             {top.task.title}
           </p>
+          {top.task.firstAction && (
+            <p className="text-[11px] text-text-muted mb-2 leading-snug">
+              <span className="text-primary font-medium">İlk adım:</span>{" "}
+              {top.task.firstAction}
+            </p>
+          )}
           <div className="flex items-center gap-1.5 flex-wrap mb-2">
             <span className="text-[10px] text-text-muted">
               {meta(top.task)}
@@ -164,6 +194,18 @@ export default function NowNextCard() {
               </span>
             ))}
           </div>
+          {(top.task.delayCount ?? 0) >= 3 && (
+            <p className="text-[10px] text-warning mb-2 leading-snug">
+              {top.task.delayCount} kez ertelendi. Bu kadar ertelenen iş genelde
+              fazla büyüktür: küçültmeyi veya alt görevlere bölmeyi dene.{" "}
+              <button
+                onClick={() => dispatch(openEditModal(top.task.id))}
+                className="underline hover:no-underline"
+              >
+                Düzenle
+              </button>
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={() => dispatch(startTask(top.task.id))}
@@ -180,6 +222,42 @@ export default function NowNextCard() {
               <ArrowRight size={12} />
             </button>
           </div>
+          {ranked.length > 1 && (
+            <button
+              onClick={() => setAlternatives((v) => !v)}
+              className="mt-2 text-[10px] text-text-muted hover:text-text transition-colors"
+            >
+              {alternatives ? "Vazgeç" : "Başka bir şey yapmak istiyorum"}
+            </button>
+          )}
+          {alternatives && (
+            <div className="mt-1.5 space-y-1">
+              {ranked.slice(1, 4).map(({ task }) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-2 rounded-lg bg-background/70 border border-border/60 px-2 py-1.5"
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: task.color }}
+                  />
+                  <span className="text-[11px] flex-1 min-w-0 truncate text-text">
+                    {task.title}
+                  </span>
+                  <span className="text-[10px] text-text-muted tabular-nums shrink-0">
+                    {meta(task)}
+                  </span>
+                  <button
+                    onClick={() => dispatch(startTask(task.id))}
+                    className="shrink-0 p-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    title="Bu görevi başlat"
+                  >
+                    <Play size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -205,7 +283,7 @@ export default function NowNextCard() {
                   style={{ backgroundColor: task.color }}
                 />
                 <span
-                  className="text-[11px] flex-1 min-w-0 truncate text-text"
+                  className="text-xs sm:text-[11px] flex-1 min-w-0 leading-snug line-clamp-2 sm:line-clamp-1 text-text"
                   title={`${task.title} · puan ${score}${
                     reasons.length > 0 ? ` · ${reasons.join(", ")}` : ""
                   }`}

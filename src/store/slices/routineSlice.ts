@@ -36,7 +36,49 @@ function normalizeTaskDates(
   });
 }
 import { routineApi } from "@/services/api";
+import {
+  dequeueWrite,
+  enqueueWrite,
+  flushWrites,
+} from "@/services/offlineQueue";
 import { getPlannedDayEnd } from "@/engine/timeEngine";
+
+/** 409 çakışmasında bu cihazla sunucu arasındaki fark. */
+export interface SyncConflictDiff {
+  added: number;
+  removed: number;
+  changed: number;
+}
+
+interface ServerTaskLite {
+  id: string;
+  title?: string;
+  status?: string;
+}
+
+function diffRoutine(
+  tasks: TaskBlock[],
+  server: unknown,
+): SyncConflictDiff | null {
+  if (!Array.isArray(server)) return null;
+  const localById = new Map(tasks.map((task) => [task.id, task] as const));
+  const serverById = new Map<string, ServerTaskLite>();
+  for (const item of server as ServerTaskLite[]) {
+    if (item && typeof item.id === "string") serverById.set(item.id, item);
+  }
+
+  let added = 0;
+  let removed = 0;
+  let changed = 0;
+  for (const id of localById.keys()) if (!serverById.has(id)) added += 1;
+  for (const [id, remote] of serverById) {
+    const local = localById.get(id);
+    if (!local) removed += 1;
+    else if (local.title !== remote.title || local.status !== remote.status)
+      changed += 1;
+  }
+  return { added, removed, changed };
+}
 
 // Sunucudan gelen görev/alt görevler `_id` taşır; istemci `id` bekler.
 type ApiTask = Partial<TaskBlock> & { _id?: string };
@@ -90,6 +132,8 @@ interface RoutineState {
   syncConflict: boolean;
   /** Sunucuya ulaşılamadı: değişiklikler yerelde, bağlantı gelince gönderilir. */
   pendingSave: boolean;
+  /** 409 anında bu cihazla sunucu arasındaki fark (yoksa null). */
+  syncConflictDiff: SyncConflictDiff | null;
 }
 
 /** Çakışan ilk açık görevi döndürür (birlikte işaretliler hariç). */
@@ -160,48 +204,83 @@ export const saveRoutineToBackend = createAsyncThunk(
         revision: null as number | null,
         conflict: false,
         offline: false,
+        diff: null as SyncConflictDiff | null,
       };
     }
     const baseRevision = (
       getState() as { routine: { revision: number | null } }
     ).routine.revision;
+    const payload = {
+      date: routine.date,
+      tasks: routine.tasks,
+      // Plandan hesaplanır; silinen görevlerin bıraktığı eski değer kaydedilmesin.
+      dayEndTime: getPlannedDayEnd(routine.tasks, routine.dayEndTime),
+      streak: routine.streak,
+      ...(force || baseRevision === null ? {} : { baseRevision }),
+    };
+    const queueKey = `routine:${routine.date}`;
+
     try {
-      const res = await routineApi.save(
-        {
-          date: routine.date,
-          tasks: routine.tasks,
-          // Plandan hesaplanır; silinen görevlerin bıraktığı eski değer kaydedilmesin.
-          dayEndTime: getPlannedDayEnd(routine.tasks, routine.dayEndTime),
-          streak: routine.streak,
-          ...(force || baseRevision === null ? {} : { baseRevision }),
-        },
-        token,
-      );
+      const res = await routineApi.save(payload, token);
+      // Sunucuya ulaştı: aynı gün için bekleyen kuyruk kaydı varsa düşür.
+      void dequeueWrite(queueKey);
       return {
         at,
         revision: typeof res?.revision === "number" ? res.revision : null,
         conflict: false,
         offline: false,
+        diff: null as SyncConflictDiff | null,
       };
     } catch (error) {
+      const status = (error as { status?: number }).status;
       // 409: plan başka bir cihazda (ya da gece devrinde) değişti.
-      if ((error as { status?: number }).status === 409) {
+      if (status === 409) {
         return {
           at,
           revision: null as number | null,
           conflict: true,
           offline: false,
+          diff: diffRoutine(
+            routine.tasks,
+            (error as { payload?: { serverTasks?: unknown } }).payload
+              ?.serverTasks,
+          ),
         };
       }
-      // Ağ hatası: değişiklikler yerelde durur, bağlantı gelince tekrar denenir.
+      // Doğrulama hataları (4xx) kuyruğa girmez; tekrar denemek sonucu değiştirmez.
+      if (typeof status === "number" && status < 500) {
+        return {
+          at,
+          revision: null as number | null,
+          conflict: false,
+          offline: false,
+          diff: null as SyncConflictDiff | null,
+        };
+      }
+      // Ağ hatası / sunucu hatası: isteğin kendisi IndexedDB kuyruğunda bekler,
+      // sayfa yenilense de bağlantı gelince gönderilir.
+      await enqueueWrite({
+        key: queueKey,
+        endpoint: "/api/routines",
+        method: "POST",
+        body: payload,
+        token,
+      });
       return {
         at,
         revision: null as number | null,
         conflict: false,
         offline: true,
+        diff: null as SyncConflictDiff | null,
       };
     }
   },
+);
+
+/** IndexedDB'de bekleyen yazmaları gönderir (bağlantı gelince / açılışta). */
+export const flushPendingWrites = createAsyncThunk(
+  "routine/flushOfflineQueue",
+  async () => flushWrites(),
 );
 
 /**
@@ -217,6 +296,7 @@ function startTodayIfStale(state: RoutineState) {
     // Yeni gün yeni kayıt: dünün revision'ı ile koşulsuz yazma yapılmasın.
     state.revision = null;
     state.syncConflict = false;
+    state.syncConflictDiff = null;
     state.pendingSave = false;
   }
 }
@@ -243,6 +323,7 @@ const routineSlice = createSlice({
     revision: null,
     syncConflict: false,
     pendingSave: false,
+    syncConflictDiff: null,
   } as RoutineState,
   reducers: {
     addTask: (
@@ -257,6 +338,8 @@ const routineSlice = createSlice({
         category?: TaskCategory;
         deadline?: number;
         description?: string;
+        /** Göreve başlarken ilk 2 dakikada yapılacak tek adım. */
+        firstAction?: string;
         parallel?: boolean;
         repeat?: RepeatFrequency;
         repeatDays?: number[];
@@ -278,6 +361,7 @@ const routineSlice = createSlice({
         category,
         deadline,
         description,
+        firstAction,
         parallel,
         repeat,
         repeatDays,
@@ -324,6 +408,7 @@ const routineSlice = createSlice({
         delayCount: 0,
         ...(deadline ? { deadline } : {}),
         ...(description ? { description } : {}),
+        ...(firstAction ? { firstAction } : {}),
         ...(parallel ? { parallel: true } : {}),
         ...(repeat ? { repeat, repeatDays } : {}),
         ...(action.payload.subtasks && action.payload.subtasks.length > 0
@@ -811,6 +896,7 @@ const routineSlice = createSlice({
       state.lastSynced = null;
       state.revision = null;
       state.syncConflict = false;
+      state.syncConflictDiff = null;
       state.pendingSave = false;
     },
   },
@@ -843,6 +929,7 @@ const routineSlice = createSlice({
       }
       state.pendingSave = false;
       state.lastSynced = action.payload.at;
+      state.syncConflictDiff = action.payload.diff ?? null;
       if (action.payload.conflict) {
         // Kullanıcı "sunucudan yükle" ya da "bu cihazı koru" diyene kadar
         // otomatik kayıt durur; aksi halde her değişiklik yeniden 409 alır.
@@ -852,6 +939,12 @@ const routineSlice = createSlice({
       state.syncConflict = false;
       if (action.payload.revision !== null) {
         state.revision = action.payload.revision;
+      }
+    });
+    builder.addCase(flushPendingWrites.fulfilled, (state, action) => {
+      if (action.payload.remaining === 0) {
+        state.pendingSave = false;
+        state.lastSynced = Date.now();
       }
     });
   },

@@ -180,7 +180,7 @@ export default function TimelineView() {
         return (
           <div
             key={task.id}
-            className="group flex flex-wrap items-center gap-x-4 gap-y-3 p-4 rounded-xl bg-surface border border-border hover:border-border/80 transition-all"
+            className="group flex flex-wrap items-center gap-x-4 gap-y-3 p-3 sm:p-4 rounded-xl bg-surface border border-border hover:border-border/80 transition-all"
           >
             <button
               onClick={() => handleCheckboxToggle(task)}
@@ -217,8 +217,8 @@ export default function TimelineView() {
               )}
             </button>
 
-            <div className="flex-1 min-w-[12rem]">
-              <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0 basis-[12rem]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 {subtasks.length > 0 && (
                   <button
                     onClick={() =>
@@ -241,7 +241,11 @@ export default function TimelineView() {
                     />
                   </button>
                 )}
-                <h3 className="text-sm font-medium text-text truncate">
+                <h3
+                  className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-text line-clamp-2 sm:text-sm sm:font-medium sm:leading-normal sm:line-clamp-1"
+                  title={`${task.title} — çift tıkla düzenle`}
+                  onDoubleClick={() => dispatch(openEditModal(task.id))}
+                >
                   {task.title}
                 </h3>
                 {subtasks.length > 0 && (

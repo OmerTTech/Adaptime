@@ -5,6 +5,8 @@ export interface IDiaryEntry extends Document {
   dateKey: string;
   mood: number;
   energy: number;
+  /** Dün gece kaç saat uyundu (0-14). Boşsa korelasyon hesabına girmez. */
+  sleepHours?: number | null;
   highlights: string;
   progress: string;
   learnings: string;
@@ -21,6 +23,7 @@ const diaryEntrySchema = new Schema<IDiaryEntry>(
     dateKey: { type: String, required: true },
     mood: { type: Number, min: 1, max: 5, default: 3 },
     energy: { type: Number, min: 1, max: 5, default: 3 },
+    sleepHours: { type: Number, min: 0, max: 14, default: null },
     highlights: { type: String, default: "", maxlength: 4000 },
     progress: { type: String, default: "", maxlength: 4000 },
     learnings: { type: String, default: "", maxlength: 4000 },

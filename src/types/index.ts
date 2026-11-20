@@ -66,6 +66,17 @@ export interface TaskBlock {
   reminderEnabled?: boolean;
   /** Aynı saatte başka bir görevle birlikte yapılıyorsa çakışma uyarısı verilmez. */
   parallel?: boolean;
+  /**
+   * Elle süre düzeltmesi (dakika). Pozitifse gerçek süreden bu kadar
+   * düşülür: boşa giden zaman veya duraklatmayı unutma telafisi.
+   */
+  timeAdjustMinutes?: number;
+  /** Bitiş saati olmadan başlatıldı; sayaç yerine geçen süre gösterilir. */
+  openEnded?: boolean;
+  /** Bu görev başlamadan önce tamamlanması gereken görevin kimliği. */
+  dependsOn?: string;
+  /** Bu görevde pomodoro ile geçirilen toplam dakika. */
+  focusMinutes?: number;
   /** Tamamlanınca bir sonraki tekrarın otomatik oluşturulması. */
   repeat?: RepeatFrequency;
   /** "custom" için haftanın günleri (0 = Pazar). */
@@ -343,6 +354,8 @@ export interface DiaryEntry {
   dateKey: string;
   mood: number;
   energy: number;
+  /** Dün geceki uyku (saat, 0-14). Boşsa null. */
+  sleepHours?: number | null;
   highlights: string;
   progress: string;
   learnings: string;

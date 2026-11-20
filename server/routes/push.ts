@@ -71,9 +71,19 @@ router.post("/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
 
 router.get("/status", authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const count = await PushSubscription.countDocuments({ userId: req.userId });
+    const [count, latest] = await Promise.all([
+      PushSubscription.countDocuments({ userId: req.userId }),
+      PushSubscription.findOne({ userId: req.userId, lastSentAt: { $ne: null } })
+        .sort({ lastSentAt: -1 })
+        .select("lastSentAt")
+        .lean(),
+    ]);
     const config = await ensureVapid();
-    res.json({ subscribed: count, enabled: config.enabled });
+    res.json({
+      subscribed: count,
+      enabled: config.enabled,
+      lastSentAt: latest?.lastSentAt ? new Date(latest.lastSentAt).getTime() : null,
+    });
   } catch (error) {
     console.error("Push status error:", error);
     res.status(500).json({ error: "Sunucu hatası" });

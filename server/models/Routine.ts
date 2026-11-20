@@ -46,6 +46,14 @@ export interface ITaskBlock {
   notes?: string;
   delayCount?: number;
   parallel?: boolean;
+  /** Elle süre düzeltmesi (dakika); gerçek süreden düşülür. */
+  timeAdjustMinutes?: number;
+  /** Bitiş saati olmadan başlatıldı (açık uçlu odak). */
+  openEnded?: boolean;
+  /** Başlamadan önce tamamlanması gereken görev. */
+  dependsOn?: string;
+  /** Pomodoro ile geçirilen toplam dakika. */
+  focusMinutes?: number;
   repeat?: "hourly" | "daily" | "weekly" | "monthly" | "custom";
   repeatDays?: number[];
   subtasks?: ISubtask[];
@@ -112,6 +120,10 @@ const taskBlockSchema = new Schema<ITaskBlock>(
     notes: { type: String },
     delayCount: { type: Number, default: 0 },
     parallel: { type: Boolean, default: false },
+    timeAdjustMinutes: { type: Number, default: 0 },
+    openEnded: { type: Boolean, default: false },
+    dependsOn: { type: String },
+    focusMinutes: { type: Number, default: 0 },
     repeat: {
       type: String,
       enum: ["hourly", "daily", "weekly", "monthly", "custom"],

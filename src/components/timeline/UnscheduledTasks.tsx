@@ -1,16 +1,20 @@
 import { useRef, useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
+  addTask,
   completeTask,
   duplicateTask,
   removeTask,
   updateTask,
   startTask,
+  scheduleTask,
   toggleSubtask,
   detachSubtask,
   renameSubtask,
 } from "@/store/slices/routineSlice";
 import { openEditModal } from "@/store/slices/uiSlice";
+import { planAutoBlock } from "@/engine/autoBlock";
+import BulkTaskModal from "@/components/timeline/BulkTaskModal";
 import { playSound } from "@/services/sound";
 import { isScheduled, PRIORITY_ORDER } from "@/types";
 import {
@@ -22,13 +26,15 @@ import {
   Crosshair,
   Pencil,
   Play,
-  Clock,
+  Layers,
   ListTodo,
   Unlink,
+  Wand2,
 } from "lucide-react";
 import ConfirmDeleteButton from "@/components/ui/ConfirmDeleteButton";
 
-const VISIBLE_LIMIT = 8;
+// ADHD dostu varsayılan: bir seferde yalnızca 3 görev gösterilir.
+const VISIBLE_LIMIT = 3;
 
 export default function UnscheduledTasks() {
   const dispatch = useAppDispatch();
@@ -45,6 +51,31 @@ export default function UnscheduledTasks() {
   } | null>(null);
   // Esc ile iptal edildiyse blur'da kaydetme.
   const cancelSubEdit = useRef(false);
+  // Satır içi "+ Adım ekle".
+  const [addingSubTaskId, setAddingSubTaskId] = useState<string | null>(null);
+  const [newSubTitle, setNewSubTitle] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [autoMessage, setAutoMessage] = useState<string | null>(null);
+
+  // 3.1 — Saatsiz görevleri bugünün boş aralıklarına yerleştir.
+  const autoBlock = () => {
+    const placements = planAutoBlock(tasks);
+    if (placements.length === 0) {
+      setAutoMessage("Bugün sığacak boşluk yok; saatsiz kalsın.");
+      return;
+    }
+    placements.forEach((p) =>
+      dispatch(
+        scheduleTask({
+          id: p.taskId,
+          startTime: p.startTime,
+          endTime: p.endTime,
+        }),
+      ),
+    );
+    setAutoMessage(`${placements.length} görev bugünün boşluklarına yerleştirildi.`);
+    setTimeout(() => setAutoMessage(null), 4000);
+  };
 
   const saveSubtaskTitle = () => {
     if (cancelSubEdit.current) {
@@ -65,9 +96,18 @@ export default function UnscheduledTasks() {
     }
     setEditingSub(null);
   };
+  const submitNewSubtask = (taskId: string) => {
+    const title = newSubTitle.trim();
+    if (title) dispatch(addTask({ parentId: taskId, title }));
+    setAddingSubTaskId(null);
+    setNewSubTitle("");
+  };
+
   // Uzun listeler performans için parça parça gösterilir (ayardan kapatılabilir).
   const [visibleCount, setVisibleCount] = useState(VISIBLE_LIMIT);
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
+  // Ciddi mod: tüm görevler birden, rahatlatıcı metin yok.
+  const seriousMode = useAppSelector((s) => s.ui.seriousMode);
   // Açık görevler üstte (öncelik sırasına göre), tamamlananlar en altta.
   const unscheduled = tasks
     .filter((t) => !isScheduled(t) && t.status !== "skipped")
@@ -84,11 +124,10 @@ export default function UnscheduledTasks() {
 
   if (unscheduled.length === 0) return null;
 
-  const pendingCount = unscheduled.filter((t) => t.status !== "completed").length;
   const focused = unscheduled.find((t) => t.id === focusId) ?? null;
   const shown = focused
     ? [focused]
-    : progressive
+    : progressive && !seriousMode
       ? unscheduled.slice(0, visibleCount)
       : unscheduled;
 
@@ -97,13 +136,32 @@ export default function UnscheduledTasks() {
       <div className="flex items-center gap-2 mb-2">
         <ListTodo size={14} className="text-text-muted" />
         <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-          Yapılacaklar {pendingCount > 0 && `(${pendingCount})`}
+          Yapılacaklar
+          {seriousMode &&
+            ` (${unscheduled.filter((t) => t.status !== "completed").length})`}
         </h3>
-        <span className="text-[10px] text-text-muted/70 ml-auto flex items-center gap-1">
-          <Clock size={10} />
-          Saatsiz görevler
-        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={autoBlock}
+            className="flex items-center gap-1 text-[10px] text-text-muted hover:text-primary transition-colors"
+            title="Önceliğe göre bugünün boş aralıklarına yerleştir"
+          >
+            <Wand2 size={10} /> Boşluklara yerleştir
+          </button>
+          <button
+            onClick={() => setBulkOpen(true)}
+            className="flex items-center gap-1 text-[10px] text-text-muted hover:text-primary transition-colors"
+            title="Birden çok görevi seç ve tek işlem uygula"
+          >
+            <Layers size={10} /> Toplu
+          </button>
+        </div>
       </div>
+
+      {autoMessage && (
+        <p className="text-[10px] text-primary mb-2 leading-snug">{autoMessage}</p>
+      )}
+      {bulkOpen && <BulkTaskModal onClose={() => setBulkOpen(false)} />}
 
       {focused && (
         <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[11px] text-primary">
@@ -382,6 +440,36 @@ export default function UnscheduledTasks() {
                 </div>
               )}
 
+              <div className="ml-8 mr-1 mb-1">
+                {addingSubTaskId === task.id ? (
+                  <input
+                    autoFocus
+                    value={newSubTitle}
+                    onChange={(e) => setNewSubTitle(e.target.value)}
+                    onBlur={() => submitNewSubtask(task.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitNewSubtask(task.id);
+                      if (e.key === "Escape") {
+                        setAddingSubTaskId(null);
+                        setNewSubTitle("");
+                      }
+                    }}
+                    placeholder="Yeni adım..."
+                    className="w-full px-2 py-1 rounded-lg bg-background border border-primary/40 text-[12px] text-text"
+                  />
+                ) : (
+                  <button
+                    onClick={() => {
+                      setAddingSubTaskId(task.id);
+                      setNewSubTitle("");
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-text-muted/70 hover:text-primary transition-colors"
+                  >
+                    <span className="text-sm leading-none">+</span> Adım ekle
+                  </button>
+                )}
+              </div>
+
               {/* 3+ gündür devreden görev: nazikçe küçült/böl/sil önerisi. */}
               {(task.carryCount ?? 0) >= 3 && !completed && (
                 <div className="mx-1 mb-2 px-2.5 py-2 rounded-lg bg-warning/10 border border-warning/30">
@@ -422,24 +510,22 @@ export default function UnscheduledTasks() {
         })}
       </div>
 
-      {progressive && !focused && unscheduled.length > visibleCount && (
+      {!seriousMode && progressive && !focused && unscheduled.length > visibleCount && (
         <>
           <button
-            onClick={() => setVisibleCount((v) => v + 5)}
+            onClick={() => setVisibleCount((v) => v + 3)}
             className="mt-2 text-[11px] text-primary hover:underline"
           >
-            +{Math.min(5, unscheduled.length - visibleCount)} görev daha
-            {unscheduled.length - visibleCount > 5
-              ? ` (${unscheduled.length - visibleCount} kaldı)`
-              : ""}
+            Daha fazlasını göster
           </button>
           <p className="text-[10px] text-text-muted/70 mt-1">
-            Tümünü birden görmek için Ayarlar → Liste görünümü’nden bu
-            gösterimi kapatabilirsin.
+            Kalanı burada bekliyor; hepsini bugün bitirmek zorunda değilsin.
+            Tümünü görmek için Ayarlar → Liste görünümü’nden bu gösterimi
+            kapatabilirsin.
           </p>
         </>
       )}
-      {progressive && !focused && visibleCount > VISIBLE_LIMIT && (
+      {!seriousMode && progressive && !focused && visibleCount > VISIBLE_LIMIT && (
         <button
           onClick={() => setVisibleCount(VISIBLE_LIMIT)}
           className="mt-2 ml-3 text-[11px] text-text-muted hover:text-text"

@@ -15,12 +15,25 @@ function plannedMinutes(task: TaskBlock): number {
   return planned > 0 ? planned / 60_000 : 0;
 }
 
-function actualMinutes(task: TaskBlock): number {
+/**
+ * Görevde gerçekten çalışılan dakika. Elle süre düzeltmesi
+ * (`timeAdjustMinutes`) buradan düşülür; boşa giden zaman sayılmaz.
+ */
+export function actualWorkMinutes(task: TaskBlock): number {
   const start = task.startedAt ?? task.startTime;
   const end = task.completedAt ?? task.endTime;
-  if (!start || !end || end <= start) return 0;
-  const actual = end - start - (task.pausedDuration ?? 0);
-  return actual > 0 ? actual / 60_000 : 0;
+  const adjust = task.timeAdjustMinutes ?? 0;
+  if (start && end && end > start) {
+    return Math.max(
+      0,
+      (end - start - (task.pausedDuration ?? 0)) / 60_000 - adjust,
+    );
+  }
+  return Math.max(0, (task.estimatedMinutes ?? 0) - adjust);
+}
+
+function actualMinutes(task: TaskBlock): number {
+  return actualWorkMinutes(task);
 }
 
 function ratioOf(task: TaskBlock): number | null {

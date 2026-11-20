@@ -97,9 +97,16 @@ interface CheckActionsProps {
   check?: MentorCheck | null;
   taskId?: string | null;
   onDone?: () => void;
+  /** Uzun yanıt için çok satırlı alan (Ctrl/Cmd+Enter gönderir). */
+  multiline?: boolean;
 }
 
-export default function CheckActions({ check, taskId, onDone }: CheckActionsProps) {
+export default function CheckActions({
+  check,
+  taskId,
+  onDone,
+  multiline = false,
+}: CheckActionsProps) {
   const dispatch = useAppDispatch();
   const { token } = useAuth();
   const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
@@ -228,19 +235,36 @@ export default function CheckActions({ check, taskId, onDone }: CheckActionsProp
       </div>
 
       <div className="flex gap-1.5">
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleFreeText();
-            }
-          }}
-          placeholder="Şu anda ne yapıyorsun? Kısaca anlatabilirsin..."
-          maxLength={500}
-          className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-background border border-border text-text text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
-        />
+        {multiline ? (
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleFreeText();
+              }
+            }}
+            placeholder="Şu anda ne yapıyorsun? Kısa bir kelime ya da uzun bir not..."
+            maxLength={500}
+            rows={2}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-background border border-border text-text text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        ) : (
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleFreeText();
+              }
+            }}
+            placeholder="Şu anda ne yapıyorsun? Kısaca anlatabilirsin..."
+            maxLength={500}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-background border border-border text-text text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        )}
         <button
           type="button"
           onClick={handleFreeText}

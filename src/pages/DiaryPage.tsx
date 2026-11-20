@@ -37,6 +37,7 @@ function emptyEntry(date: string): DiaryEntry {
     dateKey: date,
     mood: 3,
     energy: 3,
+    sleepHours: null,
     highlights: "",
     progress: "",
     learnings: "",
@@ -87,6 +88,9 @@ export default function DiaryPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  // Bugünün kaydı sayfa açılışında forma yüklenmez; yalnızca "Düzenle"
+  // denince ya da başka bir güne geçilince yüklenir.
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (token) dispatch(loadDiaryEntries(token));
@@ -96,11 +100,23 @@ export default function DiaryPage() {
     if (token) dispatch(loadDiaryEntry({ token, date }));
   }, [token, date, dispatch]);
 
+  const selectDate = (next: string) => {
+    setDate(next);
+    setEditing(true);
+  };
+
+  // Kayıtlı gün yalnızca açıkça istenince (düzenle veya gün değiştir) forma gelir.
   useEffect(() => {
-    if (current && current.dateKey === date) {
-      setForm(current);
-      setTagsInput((current.tags ?? []).join(", "));
-    } else if (!loading) {
+    if (!current || current.dateKey !== date) return;
+    if (!editing && date === today) return;
+    setForm(current);
+    setTagsInput((current.tags ?? []).join(", "));
+  }, [current, date, editing, today]);
+
+  // Gün değiştiğinde ve o gün için kayıt yoksa formu temizle.
+  useEffect(() => {
+    if (loading) return;
+    if (!current || current.dateKey !== date) {
       setForm(emptyEntry(date));
       setTagsInput("");
     }
@@ -245,20 +261,20 @@ export default function DiaryPage() {
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setDate(shiftDate(date, -1))}
+            onClick={() => selectDate(shiftDate(date, -1))}
             className="p-1.5 rounded-lg bg-surface border border-border text-text-muted hover:text-text"
             title="Önceki gün"
           >
             <ChevronLeft size={14} />
           </button>
           <button
-            onClick={() => setDate(today)}
+            onClick={() => selectDate(today)}
             className="px-2.5 py-1.5 rounded-lg bg-surface border border-border text-[11px] text-text-muted hover:text-text"
           >
             Bugün
           </button>
           <button
-            onClick={() => setDate(shiftDate(date, 1))}
+            onClick={() => selectDate(shiftDate(date, 1))}
             disabled={date >= today}
             className="p-1.5 rounded-lg bg-surface border border-border text-text-muted hover:text-text disabled:opacity-40"
             title="Sonraki gün"
@@ -285,6 +301,19 @@ export default function DiaryPage() {
       )}
 
       <div className="rounded-2xl border border-border bg-surface p-4 space-y-4">
+        {current && current.dateKey === date && !editing && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2">
+            <p className="text-[11px] text-text-muted">
+              Bu gün için kayıt var. Form boş; düzenlemek için aç.
+            </p>
+            <button
+              onClick={() => setEditing(true)}
+              className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-medium hover:bg-primary/90 transition-colors"
+            >
+              Düzenle
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-text-muted mb-1.5">Ruh hali</p>
@@ -323,6 +352,28 @@ export default function DiaryPage() {
               ))}
             </div>
           </div>
+          <div className="sm:col-span-2">
+            <p className="text-xs text-text-muted mb-1.5">Dün gece uyku (saat)</p>
+            <input
+              type="number"
+              min={0}
+              max={14}
+              step={0.5}
+              value={form.sleepHours ? form.sleepHours : ""}
+              onChange={(e) =>
+                setField(
+                  "sleepHours",
+                  e.target.value === "" ? 0 : Number(e.target.value),
+                )
+              }
+              placeholder="7.5"
+              className="w-24 px-3 py-1.5 rounded-lg bg-background border border-border text-text text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <p className="text-[10px] text-text-muted mt-1">
+              İstatistikte uyku ile tamamlama oranı karşılaştırılır. Boş
+              bırakırsan hesaba katılmaz.
+            </p>
+          </div>
         </div>
 
         {fields.map((field) => (
@@ -356,9 +407,9 @@ export default function DiaryPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => handleSave()}
-            disabled={!token || saving || (!hasContent && !current)}
+            disabled={!token || saving || !hasContent}
             title={
-              hasContent || current
+              hasContent
                 ? "Günlüğü kaydet"
                 : "Kaydetmek için en az bir alanı doldur"
             }
@@ -442,7 +493,7 @@ export default function DiaryPage() {
               return (
                 <button
                   key={entry.dateKey}
-                  onClick={() => setDate(entry.dateKey)}
+                  onClick={() => selectDate(entry.dateKey)}
                   className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${
                     entry.dateKey === date
                       ? "bg-primary/10 border-primary/30"

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { Routine, type ITaskBlock } from "../models/Routine.js";
 import { TaskArchive } from "../models/Archive.js";
 import { authMiddleware, type AuthRequest } from "../middleware/auth.js";
+import { User } from "../models/User.js";
+import { sendWebhook } from "../services/webhook.js";
 
 const router = Router();
 
@@ -61,46 +63,130 @@ function dateString(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+const FREEZES_PER_MONTH = 2;
+
 /**
- * Gerçek streak: bugün ya da dün "completed" görev içeren ve
- * kesintisiz devam eden gün sayısı. Bugün (henüz tamamlanmamış olsa bile)
- * seriyi kırmaz; dünden itibaren geriye sayar.
+ * Gerçek streak: bugün ya da dün "completed" görev içeren ve kesintisiz
+ * devam eden gün sayısı. Dondurulmuş günler zinciri sürdürür ama sayıya
+ * eklenmez (ayda en fazla 2 gün).
  */
+async function streakData(userId: string) {
+  const [routines, user] = await Promise.all([
+    Routine.find({ userId }).sort({ date: -1 }).select("date tasks"),
+    User.findById(userId).select("streakFreezeDates"),
+  ]);
+
+  const completedDates = new Set(
+    routines
+      .filter((r) =>
+        r.tasks.some((t: ITaskBlock) => t.status === "completed"),
+      )
+      .map((r) => r.date),
+  );
+  const frozenDates = new Set(user?.streakFreezeDates ?? []);
+
+  const today = new Date();
+  const todayKey = dateString(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = dateString(yesterday);
+
+  const hasToday = completedDates.has(todayKey);
+  let cursor = new Date(today);
+  if (!completedDates.has(todayKey) && !frozenDates.has(todayKey)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let streak = 0;
+  while (
+    completedDates.has(dateString(cursor)) ||
+    frozenDates.has(dateString(cursor))
+  ) {
+    if (completedDates.has(dateString(cursor))) streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  const monthKey = todayKey.slice(0, 7);
+  const usedThisMonth = [...frozenDates].filter((d) =>
+    d.startsWith(monthKey),
+  ).length;
+  const freezesLeft = Math.max(0, FREEZES_PER_MONTH - usedThisMonth);
+
+  // Dün boş kaldıysa ve ondan önceki gün seriye dahilse dondurma anlamlı.
+  const beforeYesterday = new Date(today);
+  beforeYesterday.setDate(beforeYesterday.getDate() - 2);
+  const beforeKey = dateString(beforeYesterday);
+  const canFreezeYesterday =
+    freezesLeft > 0 &&
+    !completedDates.has(yesterdayKey) &&
+    !frozenDates.has(yesterdayKey) &&
+    (completedDates.has(beforeKey) || frozenDates.has(beforeKey));
+
+  const startedDates = new Set(routines.map((r) => r.date));
+
+  return {
+    currentStreak: streak,
+    completedDates: [...completedDates],
+    totalDates: [...startedDates],
+    todayIsCompleted: hasToday,
+    frozenDates: [...frozenDates],
+    freezesLeft,
+    freezesPerMonth: FREEZES_PER_MONTH,
+    canFreezeYesterday,
+    yesterdayCompleted: completedDates.has(yesterdayKey),
+  };
+}
+
 router.get("/streak", authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const routines = await Routine.find({ userId: req.userId })
-      .sort({ date: -1 })
-      .select("date tasks");
-
-    const completedDates = new Set(
-      routines
-        .filter((r) =>
-          r.tasks.some((t: ITaskBlock) => t.status === "completed"),
-        )
-        .map((r) => r.date),
-    );
-
-    const today = new Date();
-    const hasToday = completedDates.has(dateString(today));
-    let cursor = new Date(today);
-    if (!hasToday) cursor.setDate(cursor.getDate() - 1);
-
-    let streak = 0;
-    while (completedDates.has(dateString(cursor))) {
-      streak++;
-      cursor.setDate(cursor.getDate() - 1);
-    }
-
-    const startedDates = new Set(routines.map((r) => r.date));
-
-    res.json({
-      currentStreak: streak,
-      completedDates: [...completedDates],
-      totalDates: [...startedDates],
-      todayIsCompleted: hasToday,
-    });
+    res.json(await streakData(String(req.userId)));
   } catch (error) {
     console.error("Get streak error:", error);
+    res.status(500).json({ error: "Sunucu hatası" });
+  }
+});
+
+/** Ayda 2 hak: dünü (veya son 7 günden birini) dondurup seriyi korur. */
+router.post("/streak/freeze", authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: "Kullanıcı bulunamadı" });
+
+    const today = new Date();
+    const todayKey = dateString(today);
+    const requested =
+      typeof req.body?.date === "string" ? req.body.date : undefined;
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const target = requested ?? dateString(yesterday);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(target) || target >= todayKey) {
+      return res.status(400).json({ error: "Geçerli bir geçmiş gün seç" });
+    }
+    const targetDate = new Date(`${target}T00:00:00`);
+    const daysAgo = Math.floor(
+      (today.getTime() - targetDate.getTime()) / 86_400_000,
+    );
+    if (daysAgo > 7) {
+      return res.status(400).json({ error: "Yalnızca son 7 gün dondurulabilir" });
+    }
+
+    const dates = user.streakFreezeDates ?? [];
+    if (!dates.includes(target)) {
+      const monthKey = target.slice(0, 7);
+      const used = dates.filter((d) => d.startsWith(monthKey)).length;
+      if (used >= FREEZES_PER_MONTH) {
+        return res
+          .status(400)
+          .json({ error: "Bu ay için 2 dondurma hakkı doldu" });
+      }
+      user.streakFreezeDates = [...dates, target];
+      await user.save();
+    }
+
+    res.json(await streakData(String(req.userId)));
+  } catch (error) {
+    console.error("Streak freeze error:", error);
     res.status(500).json({ error: "Sunucu hatası" });
   }
 });
@@ -923,6 +1009,7 @@ router.post("/:date/task-update", authMiddleware, async (req: AuthRequest, res) 
     );
     if (!task) return res.status(404).json({ error: "Görev bulunamadı" });
 
+    const wasCompleted = task.status === "completed";
     if (patch.status) task.status = patch.status as ITaskBlock["status"];
     if (patch.title) task.title = patch.title;
     if (patch.startTime !== undefined) {
@@ -978,6 +1065,23 @@ router.post("/:date/task-update", authMiddleware, async (req: AuthRequest, res) 
 
     routine.markModified("tasks");
     await routine.save();
+
+    // 4.2 — görev tamamlandığında dışarıya olay gönder (varsa).
+    if (!wasCompleted && task.status === "completed" && req.userId) {
+      void sendWebhook(String(req.userId), {
+        event: "task.completed",
+        date,
+        task: {
+          id: taskId,
+          title: task.title,
+          priority: task.priority ?? "medium",
+          category: task.category ?? "other",
+          startTime: task.startTime ?? null,
+          endTime: task.endTime ?? null,
+          completedAt: task.completedAt ?? Date.now(),
+        },
+      });
+    }
 
     res.json({ ok: true });
   } catch (error) {

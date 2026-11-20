@@ -16,6 +16,7 @@ import {
   Unlink,
 } from "lucide-react";
 import {
+  addTask,
   startTask,
   pauseTask,
   completeTask,
@@ -49,6 +50,9 @@ export default function TimelineView() {
   } | null>(null);
   // Esc ile iptal edildiyse blur'da kaydetme.
   const cancelSubEdit = useRef(false);
+  // Satır içi "+ Adım ekle".
+  const [addingSubTaskId, setAddingSubTaskId] = useState<string | null>(null);
+  const [newSubTitle, setNewSubTitle] = useState("");
 
   const saveSubtaskTitle = () => {
     if (cancelSubEdit.current) {
@@ -85,6 +89,13 @@ export default function TimelineView() {
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const submitNewSubtask = (taskId: string) => {
+    const title = newSubTitle.trim();
+    if (title) dispatch(addTask({ parentId: taskId, title }));
+    setAddingSubTaskId(null);
+    setNewSubTitle("");
+  };
 
   const handleCheckboxToggle = useCallback(
     (task: (typeof tasks)[0]) => {
@@ -476,6 +487,35 @@ export default function TimelineView() {
                   </div>
                 </div>
               )}
+              <div className="mt-1">
+                {addingSubTaskId === task.id ? (
+                  <input
+                    autoFocus
+                    value={newSubTitle}
+                    onChange={(e) => setNewSubTitle(e.target.value)}
+                    onBlur={() => submitNewSubtask(task.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitNewSubtask(task.id);
+                      if (e.key === "Escape") {
+                        setAddingSubTaskId(null);
+                        setNewSubTitle("");
+                      }
+                    }}
+                    placeholder="Yeni adım..."
+                    className="w-full px-2 py-1 rounded bg-background border border-primary/40 text-xs text-text"
+                  />
+                ) : (
+                  <button
+                    onClick={() => {
+                      setAddingSubTaskId(task.id);
+                      setNewSubTitle("");
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-text-muted/70 hover:text-primary transition-colors"
+                  >
+                    <span className="text-sm leading-none">+</span> Adım ekle
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 ml-auto">

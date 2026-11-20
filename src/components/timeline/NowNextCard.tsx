@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { pauseTask, startTask } from "@/store/slices/routineSlice";
-import { openEditModal } from "@/store/slices/uiSlice";
+import { pauseTask, startTask, updateTask } from "@/store/slices/routineSlice";
+import { openEditModal, setActivePage } from "@/store/slices/uiSlice";
+import { setFocusTask, startSession } from "@/store/slices/focusSlice";
+import StartRitualModal from "@/components/timeline/StartRitualModal";
 import { isScheduled, PRIORITY_LABEL, type TaskBlock } from "@/types";
 import { formatTime } from "@/utils";
 import {
@@ -9,8 +11,11 @@ import {
   ChevronDown,
   ChevronUp,
   ListOrdered,
+  Lock,
+  Infinity as InfinityIcon,
   Play,
   Sparkles,
+  Timer,
 } from "lucide-react";
 
 const OPEN_STATUSES: TaskBlock["status"][] = ["pending", "active", "paused"];
@@ -91,9 +96,14 @@ export default function NowNextCard() {
   const dispatch = useAppDispatch();
   const tasks = useAppSelector((s) => s.routine.currentRoutine?.tasks ?? []);
   const progressive = useAppSelector((s) => s.ui.progressiveLists);
+  const focusWork = useAppSelector((s) => s.focus.workMinutes);
   const [open, setOpen] = useState(false);
   const [alternatives, setAlternatives] = useState(false);
   const [limit, setLimit] = useState(5);
+  // 3.7 — Bağımlılık uyarısını bilerek geçen görev.
+  const [overrideDep, setOverrideDep] = useState<string | null>(null);
+  // 2.6 — Başlangıç ritüeli (nefes + tek cümle hedef).
+  const [ritual, setRitual] = useState(false);
 
   const ranked = useMemo(() => {
     const open = tasks.filter((t) => OPEN_STATUSES.includes(t.status));
@@ -116,6 +126,12 @@ export default function NowNextCard() {
   );
 
   const top = ranked[0];
+  const dependency = top.task.dependsOn
+    ? tasks.find((t) => t.id === top.task.dependsOn)
+    : undefined;
+  const blockedBy =
+    dependency && dependency.status !== "completed" ? dependency : undefined;
+  const depConfirmed = overrideDep === top.task.id;
   const shown = !open
     ? ranked.slice(0, 1)
     : progressive
@@ -124,9 +140,11 @@ export default function NowNextCard() {
   const remaining = ranked.length - shown.length;
 
   const meta = (task: TaskBlock) =>
-    isScheduled(task)
-      ? `${formatTime(task.startTime)}–${formatTime(task.endTime)}`
-      : `~${task.estimatedMinutes ?? 30} dk`;
+    task.openEnded
+      ? "süresiz"
+      : isScheduled(task)
+        ? `${formatTime(task.startTime)}–${formatTime(task.endTime)}`
+        : `~${task.estimatedMinutes ?? 30} dk`;
 
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
@@ -206,14 +224,37 @@ export default function NowNextCard() {
               </button>
             </p>
           )}
+          {blockedBy && depConfirmed && (
+            <p className="text-[10px] text-warning mb-2 leading-snug">
+              “{blockedBy.title}” henüz bitmedi. Yine de başlarsan iki iş birden
+              açık kalır.{" "}
+              <button
+                onClick={() => setOverrideDep(null)}
+                className="underline hover:no-underline"
+              >
+                Vazgeç
+              </button>
+            </p>
+          )}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => dispatch(startTask(top.task.id))}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors"
-            >
-              <Play size={13} />
-              Hemen başla
-            </button>
+            {blockedBy && !depConfirmed ? (
+              <button
+                onClick={() => setOverrideDep(top.task.id)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-warning/10 border border-warning/40 text-warning text-xs font-medium hover:bg-warning/20 transition-colors"
+                title={`Önce “${blockedBy.title}” tamamlanmalı`}
+              >
+                <Lock size={13} />
+                Önce “{blockedBy.title}” bitmeli
+              </button>
+            ) : (
+              <button
+                onClick={() => setRitual(true)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors"
+              >
+                <Play size={13} />
+                Hemen başla
+              </button>
+            )}
             <button
               onClick={() => dispatch(openEditModal(top.task.id))}
               className="flex items-center gap-1 px-3 py-2 rounded-lg bg-surface border border-border text-text-muted hover:text-text text-xs transition-colors"
@@ -222,6 +263,36 @@ export default function NowNextCard() {
               <ArrowRight size={12} />
             </button>
           </div>
+          <button
+            onClick={() => {
+              dispatch(setFocusTask(top.task.id));
+              dispatch(startSession());
+              dispatch(setActivePage("focus"));
+            }}
+            className="mt-2 flex items-center gap-1 text-[10px] text-text-muted hover:text-primary transition-colors"
+            title="Odak sonunda mola gelir; dakikalar bu göreve işlenir"
+          >
+            <Timer size={11} />
+            {focusWork} dk pomodoro ile başla
+          </button>
+          {isScheduled(top.task) && top.task.status !== "active" && (
+            <button
+              onClick={() => {
+                dispatch(
+                  updateTask({
+                    id: top.task.id,
+                    updates: { openEnded: true },
+                  }),
+                );
+                dispatch(startTask(top.task.id));
+              }}
+              className="mt-2 flex items-center gap-1 text-[10px] text-text-muted hover:text-primary transition-colors"
+              title="Bitiş saati işlemez; geçen süre sayılır"
+            >
+              <InfinityIcon size={11} />
+              Süresiz başlat (bitiş saati yok, flow modu)
+            </button>
+          )}
           {ranked.length > 1 && (
             <button
               onClick={() => setAlternatives((v) => !v)}
@@ -259,6 +330,25 @@ export default function NowNextCard() {
             </div>
           )}
         </>
+      )}
+
+      {ritual && (
+        <StartRitualModal
+          task={top.task}
+          onClose={() => setRitual(false)}
+          onStart={(goal) => {
+            if (goal) {
+              dispatch(
+                updateTask({
+                  id: top.task.id,
+                  updates: { firstAction: goal },
+                }),
+              );
+            }
+            dispatch(startTask(top.task.id));
+            setRitual(false);
+          }}
+        />
       )}
 
       {open && (

@@ -260,3 +260,162 @@ html {
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
+
+/* ---------------------------------------------------------------
+   Tema paketleri (4.3): palet + yüksek kontrast + renk körü modu.
+   Palet yalnızca vurgu ve yüzey renklerini değiştirir; okunabilirlik
+   için metin renkleri korunur.
+   --------------------------------------------------------------- */
+
+:root[data-palette="forest"] {
+  --primary: #15803d;
+  --primary-hover: #16a34a;
+  --ring: #15803d;
+  --surface: #eef6f0;
+  --surface-hover: #dcecdf;
+  --sidebar-primary: #15803d;
+}
+.dark[data-palette="forest"] {
+  --primary: #22c55e;
+  --primary-hover: #4ade80;
+  --ring: #22c55e;
+  --background: #0b120e;
+  --card: #14201a;
+  --popover: #18271f;
+  --secondary: #1e2f26;
+  --muted: #1e2f26;
+  --accent: #1e2f26;
+  --surface: #1a2a21;
+  --surface-hover: #24382c;
+  --border: #35473c;
+  --input: #3c5145;
+  --sidebar: #14201a;
+  --sidebar-primary: #22c55e;
+  --sidebar-border: #35473c;
+}
+:root[data-palette="ocean"] {
+  --primary: #0369a1;
+  --primary-hover: #0284c7;
+  --ring: #0369a1;
+  --surface: #edf5fb;
+  --surface-hover: #dcebf6;
+  --sidebar-primary: #0369a1;
+}
+.dark[data-palette="ocean"] {
+  --primary: #38bdf8;
+  --primary-hover: #7dd3fc;
+  --ring: #38bdf8;
+  --background: #08131c;
+  --card: #0f1e2b;
+  --popover: #122433;
+  --secondary: #14283a;
+  --muted: #14283a;
+  --accent: #14283a;
+  --surface: #14283a;
+  --surface-hover: #1c3549;
+  --border: #2d4761;
+  --input: #35526e;
+  --sidebar: #0f1e2b;
+  --sidebar-primary: #38bdf8;
+  --sidebar-border: #2d4761;
+}
+:root[data-palette="sand"] {
+  --primary: #b45309;
+  --primary-hover: #d97706;
+  --ring: #b45309;
+  --surface: #f7f1e6;
+  --surface-hover: #ece0cb;
+  --sidebar-primary: #b45309;
+}
+.dark[data-palette="sand"] {
+  --primary: #f59e0b;
+  --primary-hover: #fbbf24;
+  --ring: #f59e0b;
+  --background: #171208;
+  --card: #221b10;
+  --popover: #2a2115;
+  --secondary: #2a2115;
+  --muted: #2a2115;
+  --accent: #2a2115;
+  --surface: #2a2115;
+  --surface-hover: #382c1b;
+  --border: #4a3c25;
+  --input: #55452c;
+  --sidebar: #221b10;
+  --sidebar-primary: #f59e0b;
+  --sidebar-border: #4a3c25;
+}
+:root[data-palette="berry"] {
+  --primary: #be185d;
+  --primary-hover: #db2777;
+  --ring: #be185d;
+  --surface: #fbeef5;
+  --surface-hover: #f6dbe9;
+  --sidebar-primary: #be185d;
+}
+.dark[data-palette="berry"] {
+  --primary: #f472b6;
+  --primary-hover: #f9a8d4;
+  --ring: #f472b6;
+  --background: #170912;
+  --card: #241020;
+  --popover: #2e1529;
+  --secondary: #2e1529;
+  --muted: #2e1529;
+  --accent: #2e1529;
+  --surface: #2e1529;
+  --surface-hover: #3d1c36;
+  --border: #4b2742;
+  --input: #573050;
+  --sidebar: #241020;
+  --sidebar-primary: #f472b6;
+  --sidebar-border: #4b2742;
+}
+
+/* Yüksek kontrast: kenarlık ve ikincil metin belirginleşir. */
+:root[data-contrast="high"] {
+  --border: #111111;
+  --input: #111111;
+  --text-muted: #1f2430;
+  --surface: #e9e9f1;
+  --surface-hover: #d3d3e0;
+  --muted-foreground: #1f2430;
+}
+.dark[data-contrast="high"] {
+  --border: #f5f5fa;
+  --input: #f5f5fa;
+  --text-muted: #e8e8f2;
+  --surface: #111118;
+  --surface-hover: #242430;
+  --muted-foreground: #e8e8f2;
+}
+
+/* Renk körü modu: kırmızı/yeşil yerine mavi-turuncu-mor ayrımı. */
+:root[data-colorblind="1"] {
+  --danger: #c2410c;
+  --success: #1d4ed8;
+  --warning: #7e22ce;
+  --chart-1: #1d4ed8;
+  --chart-2: #ea580c;
+  --chart-3: #7e22ce;
+  --chart-4: #0891b2;
+  --chart-5: #a16207;
+}
+.dark[data-colorblind="1"] {
+  --danger: #fb923c;
+  --success: #60a5fa;
+  --warning: #c084fc;
+  --chart-1: #60a5fa;
+  --chart-2: #fb923c;
+  --chart-3: #c084fc;
+  --chart-4: #22d3ee;
+  --chart-5: #facc15;
+}
+
+/* Odak tam ekran: üst gezinme gizlenir, yalnızca görev + sayaç kalır. */
+body.focus-full header {
+  display: none;
+}
+body.focus-full main {
+  padding-top: 1.5rem;
+}

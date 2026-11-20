@@ -141,6 +141,16 @@ router.put("/:date", authMiddleware, async (req: AuthRequest, res) => {
         dateKey: date,
         mood: clamp(body.mood, 3),
         energy: clamp(body.energy, 3),
+        sleepHours:
+          body.sleepHours === null || body.sleepHours === "" ||
+          body.sleepHours === undefined
+            ? null
+            : (() => {
+                const n = Number(body.sleepHours);
+                return Number.isFinite(n)
+                  ? Math.min(14, Math.max(0, Math.round(n * 2) / 2))
+                  : null;
+              })(),
         highlights: pickText(body.highlights),
         progress: pickText(body.progress),
         learnings: pickText(body.learnings),

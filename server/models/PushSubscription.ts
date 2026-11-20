@@ -8,6 +8,8 @@ export interface IPushSubscription extends Document {
   /** Aboneliğin oluşturulduğu VAPID genel anahtarı (uyuşmazlıkta silinir). */
   publicKey?: string;
   userAgent?: string;
+  /** Son başarılı bildirim zamanı (Ayarlar'daki bilgi satırı için). */
+  lastSentAt?: Date;
   createdAt: Date;
 }
 
@@ -24,9 +26,12 @@ const pushSubscriptionSchema = new Schema<IPushSubscription>(
     auth: { type: String, required: true },
     publicKey: { type: String },
     userAgent: { type: String },
+    lastSentAt: { type: Date },
   },
   { timestamps: true },
 );
+
+// userId ve endpoint indeksleri alan tanımlarında zaten var.
 
 export const PushSubscription = mongoose.model<IPushSubscription>(
   "PushSubscription",

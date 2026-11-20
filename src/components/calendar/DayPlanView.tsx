@@ -91,6 +91,9 @@ export default function DayPlanView() {
   const [moveDate, setMoveDate] = useState(getTodayString());
   const [movingBusy, setMovingBusy] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  // 3.4 — sürükle-bırak: görevi başka bir saat dilimine bırak.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!flash) return;
@@ -201,6 +204,50 @@ export default function DayPlanView() {
           subtasks: [],
         },
         token,
+      );
+      await load();
+      dispatch(bumpDayRefresh());
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const moveToTime = async (taskId: string, targetStart: number) => {
+    if (!token) return;
+    const dragged = tasks.find((t) => t.id === taskId);
+    if (!dragged || dragged.virtual) return;
+    const duration =
+      dragged.startTime && dragged.endTime
+        ? dragged.endTime - dragged.startTime
+        : (dragged.estimatedMinutes ?? 30) * 60_000;
+    const startTime = targetStart;
+    const endTime = startTime + duration;
+    if (dragged.startTime === startTime) return;
+
+    // Çakışma engellenmez, uyarılır: kullanıcı kararı kendisi verir.
+    const clash = tasks.find(
+      (t) =>
+        t.id !== dragged.id &&
+        t.startTime &&
+        t.endTime &&
+        t.status !== "completed" &&
+        t.status !== "skipped" &&
+        startTime < t.endTime &&
+        t.startTime < endTime,
+    );
+
+    setBusy(dragged.id);
+    try {
+      await routineApi.taskUpdate(
+        selectedDate,
+        dragged.id,
+        { startTime, endTime, estimatedMinutes: null },
+        token,
+      );
+      setFlash(
+        clash
+          ? `“${dragged.title}” ${hhmm(startTime)} saatine taşındı; “${clash.title}” ile çakışıyor.`
+          : `“${dragged.title}” ${hhmm(startTime)} saatine taşındı.`,
       );
       await load();
       dispatch(bumpDayRefresh());
@@ -334,7 +381,40 @@ export default function DayPlanView() {
       return (
         <div
           key={task.id}
-          className="group flex items-center gap-2 rounded-lg bg-background/60 px-2 py-1.5"
+          draggable={!task.virtual}
+          onDragStart={(e) => {
+            if (task.virtual) return;
+            e.dataTransfer.setData("text/plain", task.id);
+            e.dataTransfer.effectAllowed = "move";
+            setDraggingId(task.id);
+          }}
+          onDragEnd={() => {
+            setDraggingId(null);
+            setDragOverId(null);
+          }}
+          onDragOver={(e) => {
+            if (!draggingId || !task.startTime) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDragOverId(task.id);
+          }}
+          onDragLeave={() =>
+            setDragOverId((id) => (id === task.id ? null : id))
+          }
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = e.dataTransfer.getData("text/plain") || draggingId;
+            setDragOverId(null);
+            setDraggingId(null);
+            if (id && task.startTime) void moveToTime(id, task.startTime);
+          }}
+          className={`group flex items-center gap-2 rounded-lg bg-background/60 px-2 py-1.5 ${
+            task.startTime && !task.virtual ? "cursor-grab active:cursor-grabbing" : ""
+          } ${draggingId === task.id ? "opacity-40" : ""} ${
+            dragOverId === task.id
+              ? "ring-1 ring-primary bg-primary/10"
+              : ""
+          }`}
         >
           <button
             onClick={() => toggle(task)}
@@ -451,6 +531,9 @@ export default function DayPlanView() {
             <div>
               <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">
                 Planlanan görevler
+                <span className="ml-1 normal-case tracking-normal text-text-muted/70">
+                  — sürükleyip başka saate bırak
+                </span>
               </p>
               <div className="space-y-1">{rows(scheduled)}</div>
             </div>

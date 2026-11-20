@@ -162,6 +162,8 @@ const mentorCheckSchema = new Schema<IMentorCheck>(
 
 mentorCheckSchema.index({ userId: 1, dateKey: 1, createdAt: -1 });
 mentorCheckSchema.index({ userId: 1, dedupeKey: 1 }, { unique: true });
+// 180 günden eski mentor kayıtları saklanmaz (gizlilik + boyut).
+mentorCheckSchema.index({ createdAt: 1 }, { expireAfterSeconds: 180 * 24 * 3600 });
 
 export const MentorCheck = mongoose.model<IMentorCheck>(
   "MentorCheck",

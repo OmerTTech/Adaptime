@@ -72,6 +72,13 @@ export function showCheckNotification(
   onClick: () => void,
 ): boolean {
   if (notificationPermission() !== "granted") return false;
+  // Odak sırasında "bildirimleri sessize al" açıksa uygulama içi bildirim yok.
+  if (
+    typeof document !== "undefined" &&
+    document.documentElement.dataset.focusMuted === "1"
+  ) {
+    return false;
+  }
 
   const dedupeKey = check._id || `${check.createdAt}-${check.message.slice(0, 24)}`;
   if (wasNotified(dedupeKey)) return false;

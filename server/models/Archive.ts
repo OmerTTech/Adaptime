@@ -31,6 +31,8 @@ const archivedTaskSchema = new Schema<IArchivedTask>(
 );
 
 archivedTaskSchema.index({ userId: 1, removedAt: -1 });
+// 180 günden eski silinen görev kayıtları kendiliğinden temizlenir.
+archivedTaskSchema.index({ removedAt: 1 }, { expireAfterSeconds: 180 * 24 * 3600 });
 
 export const TaskArchive = mongoose.model<IArchivedTask>(
   "TaskArchive",

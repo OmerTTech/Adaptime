@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import AiSubtaskSplitter from "@/components/routine/AiSubtaskSplitter";
+import { suggestionFor } from "@/engine/estimates";
 import { CalendarDays, Clock, CornerDownRight, Zap } from "lucide-react";
 
 const PRESET_COLORS = [
@@ -46,6 +47,7 @@ export default function AddTaskModal() {
     (s) => s.routine.currentRoutine?.tasks ?? [],
   );
   const selectedDate = useAppSelector((s) => s.ui.selectedDate);
+  const history = useAppSelector((s) => s.routine.history);
   const [mode, setMode] = useState<Mode>("quick");
   const [date, setDate] = useState(selectedDate);
   const [title, setTitle] = useState("");
@@ -65,6 +67,12 @@ export default function AddTaskModal() {
   const [repeat, setRepeat] = useState<RepeatFrequency | "">("");
   const [repeatDays, setRepeatDays] = useState<number[]>([]);
   const today = getTodayString();
+
+  // Geçmişte bu kategoride tahmin sürekli kısa/uzun çıkıyorsa öneri göster.
+  const estimateSuggestion =
+    estimatedMinutes && Number(estimatedMinutes) > 0
+      ? suggestionFor(category, Number(estimatedMinutes), history)
+      : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -313,6 +321,25 @@ export default function AddTaskModal() {
               placeholder="Örn: 45"
               className="bg-background border-border text-text"
             />
+            {estimateSuggestion && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-[10px] text-warning leading-snug">
+                <span>
+                  Geçmişte bu tür işler tahmininden{" "}
+                  {Math.abs(Math.round((estimateSuggestion.ratio - 1) * 100))}%{" "}
+                  {estimateSuggestion.ratio > 1 ? "uzun" : "kısa"} sürdü (
+                  {estimateSuggestion.samples} görev).
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEstimatedMinutes(String(estimateSuggestion.suggestedMinutes))
+                  }
+                  className="shrink-0 underline hover:no-underline text-primary"
+                >
+                  {estimateSuggestion.suggestedMinutes} dk kullan
+                </button>
+              </div>
+            )}
           </div>
 
           <div>

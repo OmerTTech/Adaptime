@@ -66,8 +66,11 @@ export default function EditTaskModal() {
   const [startTime, setStartTime] = useState(
     task && isScheduled(task) ? timestampToTime(task.startTime!) : "",
   );
+  // Süresiz moddaki görevde bitiş saati anlam taşımaz: alan boş görünür.
   const [endTime, setEndTime] = useState(
-    task && isScheduled(task) ? timestampToTime(task.endTime!) : "",
+    task && isScheduled(task) && !task.openEnded
+      ? timestampToTime(task.endTime!)
+      : "",
   );
   const [estimatedMinutes, setEstimatedMinutes] = useState(
     task?.estimatedMinutes ? String(task.estimatedMinutes) : "",
@@ -86,6 +89,10 @@ export default function EditTaskModal() {
   const [parentId, setParentId] = useState("");
   const [asSubtask, setAsSubtask] = useState(false);
   const [parallel, setParallel] = useState(task?.parallel ?? false);
+  // 3.7 — Bu görev başlamadan önce bitmesi gereken görev.
+  const [dependsOn, setDependsOn] = useState(task?.dependsOn ?? "");
+  // Bitmiş/başlamış görevde gerçek süreyi elle düzeltmek için.
+  const [durationInput, setDurationInput] = useState("");
   const estimateHint = suggestionFor(
     category,
     Math.max(5, Number(estimatedMinutes) || 30),
@@ -108,6 +115,37 @@ export default function EditTaskModal() {
 
   if (!task) return null;
 
+  // Timer'dan hesaplanan ham süre; kullanıcı bunu aşağı veya yukarı çekebilir.
+  const startedRef = task.startedAt ?? task.startTime;
+  const endedRef = task.completedAt ?? task.endTime;
+  const hasWorked = Boolean(task.startedAt || task.completedAt);
+  const rawWorkMinutes =
+    hasWorked && startedRef && endedRef && endedRef > startedRef
+      ? Math.max(
+          0,
+          Math.round(
+            (endedRef - startedRef - (task.pausedDuration ?? 0)) / 60_000,
+          ),
+        )
+      : null;
+  const adjustedWorkMinutes =
+    rawWorkMinutes === null
+      ? null
+      : Math.max(0, Math.round(rawWorkMinutes - (task.timeAdjustMinutes ?? 0)));
+
+  const applyDuration = () => {
+    if (rawWorkMinutes === null || !durationInput.trim()) return;
+    const minutes = Number(durationInput);
+    if (!Number.isFinite(minutes) || minutes < 0) return;
+    dispatch(
+      updateTask({
+        id: task.id,
+        updates: { timeAdjustMinutes: rawWorkMinutes - Math.round(minutes) },
+      }),
+    );
+    setDurationInput("");
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -119,6 +157,7 @@ export default function EditTaskModal() {
       priority,
       category,
       parallel,
+      dependsOn: dependsOn || undefined,
       repeat: carryMode === "repeat" ? repeat || "daily" : undefined,
       repeatDays:
         carryMode === "repeat" && repeat === "custom" ? repeatDays : undefined,
@@ -129,6 +168,9 @@ export default function EditTaskModal() {
       description: description.trim() || undefined,
       deadline:
         deadlineTs && Number.isFinite(deadlineTs) ? deadlineTs : undefined,
+      // Saat verilirse süresiz mod kapanır; aşağıdaki "yalnız başlangıç"
+      // dalı bunu yeniden açar.
+      openEnded: false,
     };
 
     const est = estimatedMinutes
@@ -147,6 +189,25 @@ export default function EditTaskModal() {
         );
         dispatch(updateTask({ id: task.id, updates: { ...meta, estimatedMinutes: est } }));
       }
+    } else if (startTime && !endTime) {
+      // Bitiş yazılmadı: görev başlangıç saatine planlanır ama süresiz moda
+      // geçer. Bitiş yalnızca plandaki blok uzunluğu için tahminîdir; sayaç,
+      // gecikme uyarısı ve görünüm "bitişe bağlı değil" davranır.
+      const start = timeToTimestamp(startTime, today);
+      const minutes = est ?? task.estimatedMinutes ?? 30;
+      dispatch(
+        scheduleTask({
+          id: task.id,
+          startTime: start,
+          endTime: start + minutes * 60_000,
+        }),
+      );
+      dispatch(
+        updateTask({
+          id: task.id,
+          updates: { ...meta, estimatedMinutes: minutes, openEnded: true },
+        }),
+      );
     } else if (!startTime && !endTime && isScheduled(task)) {
       // "Planı kaldır" seçildi: saatler gerçekten silinir, görev yapılacaklara döner.
       dispatch(unscheduleTask({ id: task.id, estimatedMinutes: est }));
@@ -223,8 +284,15 @@ export default function EditTaskModal() {
             </div>
           </div>
 
+          {startTime && !endTime && (
+            <p className="text-[11px] text-primary leading-snug">
+              Bitiş saati boş: görev süresiz modda kaydedilir. Sayaç bitişte
+              durmaz, sen bitirene kadar devam eder.
+            </p>
+          )}
+
           <div className="flex items-center justify-between">
-            {startTime && endTime ? (
+            {startTime || endTime ? (
               <button
                 type="button"
                 onClick={handleClearTime}
@@ -282,6 +350,73 @@ export default function EditTaskModal() {
               >
                 Uygula
               </button>
+            </div>
+          )}
+
+          {adjustedWorkMinutes !== null && rawWorkMinutes !== null && (
+            <div className="p-2.5 rounded-lg bg-background border border-border">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-text">
+                  Gerçek çalışma:{" "}
+                  <strong className="tabular-nums">{adjustedWorkMinutes} dk</strong>
+                  {task.timeAdjustMinutes ? (
+                    <span className="text-text-muted">
+                      {" "}
+                      (ham {rawWorkMinutes} dk, düzeltme −{task.timeAdjustMinutes}
+                      dk)
+                    </span>
+                  ) : null}
+                </p>
+                {task.timeAdjustMinutes ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      dispatch(
+                        updateTask({
+                          id: task.id,
+                          updates: { timeAdjustMinutes: 0 },
+                        }),
+                      )
+                    }
+                    className="shrink-0 text-[10px] text-text-muted hover:text-text"
+                  >
+                    Sıfırla
+                  </button>
+                ) : null}
+              </div>
+              <p className="text-[10px] text-text-muted mt-0.5">
+                Boşa giden zamanı veya durdurmayı unuttuğun kısmı çıkar;
+                istatistik ve tahmin bu süreyi kullanır.
+              </p>
+              {(task.focusMinutes ?? 0) > 0 && (
+                <p className="text-[10px] text-primary mt-0.5">
+                  Pomodoro ile geçirilen: {task.focusMinutes} dk
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-1.5">
+                <Input
+                  type="number"
+                  min={0}
+                  value={durationInput}
+                  onChange={(e) => setDurationInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      applyDuration();
+                    }
+                  }}
+                  placeholder={`Yeni süre (şu an ${adjustedWorkMinutes})`}
+                  className="bg-background border-border text-text text-xs"
+                />
+                <Button
+                  type="button"
+                  onClick={applyDuration}
+                  disabled={!durationInput.trim()}
+                  className="shrink-0 bg-primary text-white text-xs px-3 py-2"
+                >
+                  Süreyi güncelle
+                </Button>
+              </div>
             </div>
           )}
 
@@ -408,6 +543,30 @@ export default function EditTaskModal() {
                 Taşı
               </Button>
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">
+              Bağımlılık <span className="opacity-60">— opsiyonel</span>
+            </label>
+            <select
+              value={dependsOn}
+              onChange={(e) => setDependsOn(e.target.value)}
+              className="w-full px-2.5 py-2 rounded-lg bg-background border border-border text-sm text-text"
+            >
+              <option value="">Yok — hemen başlanabilir</option>
+              {allTasks
+                .filter((t) => t.id !== task.id && t.status !== "completed")
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    Önce: {t.title}
+                  </option>
+                ))}
+            </select>
+            <p className="text-[10px] text-text-muted/80 mt-1 leading-snug">
+              Seçilen görev bitmeden bu görev “Şimdi ne yapmalıyım?” kartında
+              uyarı gösterir; yine de başlayabilirsin.
+            </p>
           </div>
 
           <div className="space-y-1.5">

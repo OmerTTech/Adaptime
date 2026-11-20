@@ -1,11 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { loadTodayRoutine, resetRoutine } from "@/store/slices/routineSlice";
-import { setProgressiveLists } from "@/store/slices/uiSlice";
+import { setProgressiveLists, setSeriousMode } from "@/store/slices/uiSlice";
 import { saveMentorSettings } from "@/store/slices/mentorSlice";
-import { useTheme } from "@/contexts/ThemeContext";
-import { backupApi, routineApi } from "@/services/api";
+import { useTheme, type Palette as PaletteName } from "@/contexts/ThemeContext";
+import { LANGUAGES, useI18n } from "@/i18n";
+import {
+  API_URL,
+  accountApi,
+  backupApi,
+  pushApi,
+  routineApi,
+} from "@/services/api";
+import { readFocusPrefs, writeFocusPrefs } from "@/services/focusPrefs";
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -34,6 +42,7 @@ import {
 } from "@/services/avatar";
 import Avatar from "@/components/ui/Avatar";
 import { getTodayString } from "@/utils";
+import { computeGamification } from "@/engine/gamification";
 import type { MentorSettings, MentorTone } from "@/types";
 import {
   ArchiveRestore,
@@ -41,10 +50,14 @@ import {
   BellOff,
   BrainCircuit,
   CalendarClock,
+  CalendarDays,
+  Copy,
   ListOrdered,
   Clock3,
   Database,
   Download,
+  Languages,
+  Link2,
   Loader2,
   LogOut,
   Palette,
@@ -52,6 +65,8 @@ import {
   Settings,
   Share,
   Trash2,
+  Timer,
+  Trophy,
   Upload,
   User,
   Volume2,
@@ -149,7 +164,17 @@ const TONES: { value: MentorTone; label: string; hint: string }[] = [
 export default function SettingsPage() {
   const { user, token, logout } = useAuth();
   const dispatch = useAppDispatch();
-  const { theme, toggle } = useTheme();
+  const {
+    theme,
+    toggle,
+    palette,
+    setPalette,
+    contrast,
+    setContrast,
+    colorblind,
+    setColorblind,
+  } = useTheme();
+  const { lang, setLang, t } = useI18n();
   const settings = useAppSelector((s) => s.mentor.settings);
   const ai = useAppSelector((s) => s.mentor.ai);
   const saving = useAppSelector((s) => s.mentor.savingSettings);
@@ -157,16 +182,44 @@ export default function SettingsPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [focusPrefs, setFocusPrefs] = useState(() => readFocusPrefs());
+  const [calendarToken, setCalendarToken] = useState<string | null>(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
+  const [webhookInput, setWebhookInput] = useState("");
+  const [webhookBusy, setWebhookBusy] = useState(false);
+  const [webhookMessage, setWebhookMessage] = useState<string | null>(null);
+  const [confirmAccountDelete, setConfirmAccountDelete] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [permission, setPermission] = useState(notificationPermission());
   const [pushState, setPushState] = useState<
     "unsupported" | "denied" | "off" | "on"
   >("off");
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const [serverPush, setServerPush] = useState<{
+    subscribed: number;
+    lastSentAt?: number | null;
+  } | null>(null);
   const { prefs: soundPrefs, update: updateSound } = useSoundPrefs();
   const routineState = useAppSelector((s) => s.routine);
   const progressiveLists = useAppSelector((s) => s.ui.progressiveLists);
+  const seriousMode = useAppSelector((s) => s.ui.seriousMode);
   const diaryEntries = useAppSelector((s) => s.diary.entries);
+  const game = useMemo(
+    () =>
+      computeGamification(
+        routineState.history,
+        routineState.currentRoutine,
+        routineState.currentRoutine?.streak ?? 0,
+        getTodayString(),
+      ),
+    [routineState.history, routineState.currentRoutine],
+  );
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [soundMessage, setSoundMessage] = useState<string | null>(null);
   const [iosGuide, setIosGuide] = useState(false);
@@ -182,6 +235,15 @@ export default function SettingsPage() {
     void pushSubscriptionState().then(setPushState);
     setIosGuide(needsIosInstallGuide());
   }, []);
+
+  // Sunucudaki kayıtlı cihaz sayısı ve son başarılı gönderim zamanı.
+  useEffect(() => {
+    if (!token) return;
+    pushApi
+      .status(token)
+      .then(setServerPush)
+      .catch(() => {});
+  }, [token]);
 
   const handleAvatarFile = async (file: File | undefined) => {
     if (!file || !user) return;
@@ -253,6 +315,73 @@ export default function SettingsPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    accountApi
+      .webhook(token)
+      .then((res) => {
+        if (cancelled) return;
+        setWebhookUrl(res.url);
+        setWebhookInput(res.url ?? "");
+      })
+      .catch(() => {
+        /* çevrimdışı: sonra tekrar denenir */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const saveWebhook = async () => {
+    if (!token || !webhookInput.trim()) return;
+    setWebhookBusy(true);
+    setWebhookMessage(null);
+    try {
+      const res = await accountApi.saveWebhook(webhookInput.trim(), token);
+      setWebhookUrl(res.url);
+      setWebhookMessage("Webhook kaydedildi. Görev tamamlandığında olay gider.");
+    } catch (err) {
+      setWebhookMessage(
+        err instanceof Error ? err.message : "Webhook kaydedilemedi.",
+      );
+    } finally {
+      setWebhookBusy(false);
+    }
+  };
+
+  const testWebhook = async () => {
+    if (!token) return;
+    setWebhookBusy(true);
+    try {
+      const res = await accountApi.testWebhook(token);
+      setWebhookMessage(
+        res.ok
+          ? "Test olayı gönderildi; adres 2xx döndü."
+          : "Adres yanıt vermedi (2xx beklenir).",
+      );
+    } catch {
+      setWebhookMessage("Test gönderilemedi.");
+    } finally {
+      setWebhookBusy(false);
+    }
+  };
+
+  const removeWebhook = async () => {
+    if (!token) return;
+    setWebhookBusy(true);
+    try {
+      await accountApi.deleteWebhook(token);
+      setWebhookUrl(null);
+      setWebhookInput("");
+      setWebhookMessage("Webhook kaldırıldı.");
+    } catch {
+      setWebhookMessage("Webhook kaldırılamadı.");
+    } finally {
+      setWebhookBusy(false);
+    }
+  };
+
   const handleRestore = async (id: string) => {
     if (!token) return;
     setRestoringId(id);
@@ -291,6 +420,48 @@ export default function SettingsPage() {
       setMessage("Veriler indirildi.");
     } catch {
       setMessage("Dışa aktarma başarısız.");
+    }
+  };
+
+  const loadShare = async (rotate = false) => {
+    if (!token) return;
+    setShareBusy(true);
+    setShareMessage(null);
+    try {
+      const res = rotate
+        ? await accountApi.rotateShareToken(token)
+        : await accountApi.shareToken(token);
+      setShareToken(res.token);
+      setShareMessage(rotate ? "Yeni bağlantı üretildi; eskisi geçersiz." : null);
+    } catch {
+      setShareMessage("Paylaşım bağlantısı oluşturulamadı.");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const copyShare = async () => {
+    if (!shareToken) return;
+    const url = `${window.location.origin}/?p=${shareToken}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareMessage("Bağlantı kopyalandı.");
+    } catch {
+      setShareMessage(url);
+    }
+  };
+
+  const disableShare = async () => {
+    if (!token) return;
+    setShareBusy(true);
+    try {
+      await accountApi.disableShare(token);
+      setShareToken(null);
+      setShareMessage("Paylaşım kapatıldı.");
+    } catch {
+      setShareMessage("Paylaşım kapatılamadı.");
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -368,8 +539,59 @@ export default function SettingsPage() {
     try {
       const res = await sendTestPush(token);
       setPushMessage(res.message ?? (res.ok ? "Gönderildi." : "Gönderilemedi."));
+      if (res.ok) pushApi.status(token).then(setServerPush).catch(() => {});
     } finally {
       setPushBusy(false);
+    }
+  };
+
+  const calendarUrl = calendarToken
+    ? `${API_URL}/api/calendar/${calendarToken}.ics`
+    : null;
+
+  const loadCalendar = async (rotate = false) => {
+    if (!token) return;
+    setCalendarBusy(true);
+    setCalendarMessage(null);
+    try {
+      const res = rotate
+        ? await accountApi.rotateCalendarToken(token)
+        : await accountApi.calendarToken(token);
+      setCalendarToken(res.token);
+      if (rotate) setCalendarMessage("Yeni link oluşturuldu; eski link geçersiz.");
+    } catch {
+      setCalendarMessage("Takvim linki oluşturulamadı.");
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
+  const copyCalendar = async () => {
+    if (!calendarUrl) return;
+    try {
+      await navigator.clipboard.writeText(calendarUrl);
+      setCalendarMessage("Link kopyalandı.");
+    } catch {
+      setCalendarMessage("Kopyalanamadı; linki elle seç.");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!token) return;
+    if (!confirmAccountDelete) {
+      setConfirmAccountDelete(true);
+      return;
+    }
+    setDeletingAccount(true);
+    try {
+      await accountApi.deleteAccount(token);
+      dispatch(resetRoutine());
+      logout();
+    } catch {
+      setMessage("Hesap silinemedi. Tekrar dene.");
+      setConfirmAccountDelete(false);
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -422,6 +644,47 @@ export default function SettingsPage() {
               <p className="text-[10px] text-text-muted mt-1">{avatarMessage}</p>
             )}
           </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="flex items-center gap-2">
+            <Trophy size={14} className="text-warning" />
+            <span className="text-xs font-medium text-text">İlerleme</span>
+            <span className="ml-auto text-[11px] text-text-muted">
+              Seviye {game.level.index} · {game.level.name}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-baseline justify-between text-[10px] text-text-muted">
+            <span className="tabular-nums">{game.xp} puan (son 30 gün)</span>
+            <span>
+              {game.level.next
+                ? `${game.level.next - game.xp} puan → ${game.level.nextName}`
+                : "En yüksek seviye"}
+            </span>
+          </div>
+          <div className="mt-1 h-1.5 bg-border rounded-full overflow-hidden">
+            <div
+              className="h-full bg-warning rounded-full transition-all"
+              style={{ width: `${game.level.progress}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-text-muted mt-2">
+            {game.badges.length}/8 rozet · {game.totalCompleted} görev
+            tamamlandı
+          </p>
+          {game.badges.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {game.badges.map((badge) => (
+                <span
+                  key={badge.id}
+                  title={`${badge.name}: ${badge.description}`}
+                  className="text-[10px] px-1.5 py-0.5 rounded-md bg-background border border-border text-text-muted"
+                >
+                  {badge.icon} {badge.name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -764,6 +1027,22 @@ export default function SettingsPage() {
                         "Bu tarayıcı push bildirimlerini desteklemiyor.")
                       : "Kapalı. Açtığında bu cihaz sunucuya kaydedilir (VAPID)."}
               </p>
+              {pushState === "on" && serverPush && (
+                <p className="text-[10px] text-text-muted/80 mt-1">
+                  Sunucuda {serverPush.subscribed} cihaz kayıtlı
+                  {serverPush.lastSentAt
+                    ? ` · son gönderim ${new Date(serverPush.lastSentAt).toLocaleString(
+                        "tr-TR",
+                        {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        },
+                      )}`
+                    : " · henüz gönderim yok"}
+                </p>
+              )}
             </div>
             <button
               onClick={togglePush}
@@ -865,10 +1144,10 @@ export default function SettingsPage() {
       </div>
 
       <div className="p-4 rounded-xl bg-surface border border-border">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-medium text-text">
             <Palette size={16} className="text-primary" />
-            Tema
+            {t("settings.appearance")}
           </div>
           <button
             onClick={toggle}
@@ -877,8 +1156,99 @@ export default function SettingsPage() {
             {theme === "dark" ? "Aydınlık Moda Geç" : "Karanlık Moda Geç"}
           </button>
         </div>
-        <p className="text-xs text-text-muted mt-1">
-          Şu an: {theme === "dark" ? "Karanlık" : "Aydınlık"}
+
+        <p className="text-[11px] text-text-muted mt-3 mb-1.5">
+          {t("settings.palette")}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              { id: "indigo", label: "İndigo", color: "#6366f1" },
+              { id: "forest", label: "Orman", color: "#16a34a" },
+              { id: "ocean", label: "Okyanus", color: "#0284c7" },
+              { id: "sand", label: "Kum", color: "#d97706" },
+              { id: "berry", label: "Böğürtlen", color: "#db2777" },
+            ] as { id: PaletteName; label: string; color: string }[]
+          ).map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setPalette(item.id)}
+              aria-pressed={palette === item.id}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] transition-colors ${
+                palette === item.id
+                  ? "border-primary bg-primary/10 text-text"
+                  : "border-border text-text-muted hover:text-text"
+              }`}
+            >
+              <span
+                className="size-3 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="mt-3 pt-3 border-t border-border flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={contrast === "high"}
+            onChange={(e) => setContrast(e.target.checked ? "high" : "normal")}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-text">
+              {t("settings.contrast")}
+            </span>
+            <span className="block text-xs text-text-muted mt-0.5">
+              {t("settings.contrastHint")}
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={colorblind}
+            onChange={(e) => setColorblind(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-text">
+              {t("settings.colorblind")}
+            </span>
+            <span className="block text-xs text-text-muted mt-0.5">
+              {t("settings.colorblindHint")}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text">
+          <Languages size={16} className="text-primary" />
+          {t("settings.language")}
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {LANGUAGES.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setLang(item.id)}
+              aria-pressed={lang === item.id}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                lang === item.id
+                  ? "border-primary bg-primary/10 text-text"
+                  : "border-border text-text-muted hover:text-text"
+              }`}
+            >
+              {item.label}
+              <span className="ml-1.5 text-[10px] text-text-muted">
+                {item.short}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-text-muted mt-2">
+          {t("settings.languageHint")}
         </p>
       </div>
 
@@ -892,9 +1262,11 @@ export default function SettingsPage() {
             onClick={() => dispatch(setProgressiveLists(!progressiveLists))}
             role="switch"
             aria-checked={progressiveLists}
+            disabled={seriousMode}
+            title={seriousMode ? "Ciddi mod açıkken tüm görevler gösterilir" : undefined}
             className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
               progressiveLists ? "bg-primary" : "bg-border"
-            }`}
+            } ${seriousMode ? "opacity-40 cursor-not-allowed" : ""}`}
           >
             <span
               className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
@@ -905,9 +1277,221 @@ export default function SettingsPage() {
         </div>
         <p className="text-xs text-text-muted mt-1">
           {progressiveLists
-            ? "Uzun listeler “+5 görev daha” ile parça parça açılır. Tüm görevleri birden görmek için kapat."
+            ? "Uzun listeler “Daha fazlasını göster” ile parça parça açılır (varsayılan)."
             : "Kapalı: yapılacaklar ve takvim listeleri tüm görevleri birden gösterir."}
         </p>
+
+        <label className="mt-3 pt-3 border-t border-border flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={seriousMode}
+            onChange={(e) => dispatch(setSeriousMode(e.target.checked))}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-text">Ciddi mod</span>
+            <span className="block text-xs text-text-muted mt-0.5">
+              Tüm görevler birden gösterilir; “kalanı sonra yaparsın” türü
+              rahatlatıcı metinler gizlenir. Varsayılan kapalı.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text mb-1">
+          <Timer size={16} className="text-primary" />
+          Odak davranışı
+        </div>
+        <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={focusPrefs.autoPause}
+            onChange={(e) => {
+              const next = { ...focusPrefs, autoPause: e.target.checked };
+              setFocusPrefs(next);
+              writeFocusPrefs(next);
+            }}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-text">
+              Sekme arka plana geçince sayacı duraklat
+            </span>
+            <span className="block text-xs text-text-muted mt-0.5">
+              Açıkken başka sekmeye geçince odak sayacı durur; dönünce “Devam”
+              ile sürer. Varsayılan kapalı.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={focusPrefs.mute}
+            onChange={(e) => {
+              const next = { ...focusPrefs, mute: e.target.checked };
+              setFocusPrefs(next);
+              writeFocusPrefs(next);
+            }}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-text">
+              Odak sırasında uygulama bildirimlerini gösterme
+            </span>
+            <span className="block text-xs text-text-muted mt-0.5">
+              Telefon bildirimleri yine gelir; bu yalnızca uygulama açıkken
+              çıkan masaüstü bildirimlerini susturur.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text mb-1">
+          <CalendarDays size={16} className="text-primary" />
+          Takvim aboneliği
+        </div>
+        <p className="text-xs text-text-muted mb-2">
+          Salt-okunur ICS adresi. Google Takvim → “Takvim ekle → URL ile”
+          bölümüne yapıştır; Apple Takvim “Takvim aboneliği” ile ekler. Saatli
+          ve tamamlanmamış görevler görünür.
+        </p>
+        {calendarUrl ? (
+          <div className="space-y-2">
+            <code className="block text-[10px] break-all rounded-lg bg-background border border-border px-2 py-1.5 text-text-muted">
+              {calendarUrl}
+            </code>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={copyCalendar}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[11px] font-medium"
+              >
+                <Copy size={11} /> Kopyala
+              </button>
+              <button
+                onClick={() => loadCalendar(true)}
+                disabled={calendarBusy}
+                className="px-2.5 py-1 rounded-lg border border-border text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+              >
+                Linki yenile
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => loadCalendar(false)}
+            disabled={calendarBusy}
+            className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-text hover:border-primary/40 transition-colors disabled:opacity-50"
+          >
+            {calendarBusy ? "Oluşturuluyor…" : "Abonelik linki oluştur"}
+          </button>
+        )}
+        {calendarMessage && (
+          <p className="text-[10px] text-text-muted mt-1.5">{calendarMessage}</p>
+        )}
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text mb-1">
+          <Link2 size={16} className="text-primary" />
+          {t("share.title")}
+        </div>
+        <p className="text-xs text-text-muted mb-2">{t("share.hint")}</p>
+        {shareToken ? (
+          <div className="space-y-2">
+            <code className="block text-[10px] break-all rounded-lg bg-background border border-border px-2 py-1.5 text-text-muted">
+              {`${window.location.origin}/?p=${shareToken}`}
+            </code>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => void copyShare()}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[11px] font-medium"
+              >
+                <Copy size={11} /> {t("share.copy")}
+              </button>
+              <button
+                onClick={() => void loadShare(true)}
+                disabled={shareBusy}
+                className="px-2.5 py-1 rounded-lg border border-border text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+              >
+                {t("share.rotate")}
+              </button>
+              <button
+                onClick={() => void disableShare()}
+                disabled={shareBusy}
+                className="px-2.5 py-1 rounded-lg border border-border text-[11px] text-text-muted hover:text-danger disabled:opacity-50"
+              >
+                {t("share.disable")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => void loadShare(false)}
+            disabled={shareBusy}
+            className="px-3 py-1.5 rounded-lg bg-background border border-border text-xs text-text hover:border-primary/40 transition-colors disabled:opacity-50"
+          >
+            {shareBusy ? "Oluşturuluyor…" : t("share.create")}
+          </button>
+        )}
+        {shareMessage && (
+          <p className="text-[10px] text-text-muted mt-1.5">{shareMessage}</p>
+        )}
+        <p className="text-[10px] text-text-muted/70 mt-1.5">
+          Plan ortağı yalnızca bugünün görevlerini görür; günlük, not ve
+          istatistikler paylaşılmaz. Bağlantıdaki “Başladın mı diye sor”
+          düğmesi sana push bildirimi gönderir (3 saatte bir).
+        </p>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text mb-1">
+          <Share size={16} className="text-primary" />
+          Webhook
+        </div>
+        <p className="text-xs text-text-muted mb-2">
+          Bir görevi tamamladığında bu adrese tek bir JSON olayı gönderilir
+          (<code className="text-[10px]">task.completed</code>). Zapier, Make,
+          n8n veya kendi betiğinle kullanabilirsin. Google Takvim / Notion gibi
+          iki yönlü entegrasyonlar OAuth hesabı gerektirir.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <input
+            value={webhookInput}
+            onChange={(e) => setWebhookInput(e.target.value)}
+            placeholder="https://ornek.com/adaptime-webhook"
+            className="flex-1 min-w-[12rem] bg-background border border-border rounded-lg px-2 py-1.5 text-[11px] text-text focus:outline-none focus:border-primary"
+          />
+          <button
+            onClick={() => void saveWebhook()}
+            disabled={webhookBusy || !webhookInput.trim()}
+            className="px-2.5 py-1.5 rounded-lg bg-primary text-white text-[11px] font-medium disabled:opacity-50"
+          >
+            Kaydet
+          </button>
+          {webhookUrl && (
+            <>
+              <button
+                onClick={() => void testWebhook()}
+                disabled={webhookBusy}
+                className="px-2.5 py-1.5 rounded-lg border border-border text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+              >
+                Test et
+              </button>
+              <button
+                onClick={() => void removeWebhook()}
+                disabled={webhookBusy}
+                className="px-2.5 py-1.5 rounded-lg border border-border text-[11px] text-text-muted hover:text-danger disabled:opacity-50"
+              >
+                Kaldır
+              </button>
+            </>
+          )}
+        </div>
+        {webhookMessage && (
+          <p className="text-[10px] text-text-muted mt-1.5">{webhookMessage}</p>
+        )}
       </div>
 
       <div className="p-4 rounded-xl bg-surface border border-border">
@@ -985,6 +1569,26 @@ export default function SettingsPage() {
           <Download size={14} />
           Verileri indir (JSON)
         </button>
+        <button
+          onClick={handleDeleteAccount}
+          disabled={deletingAccount}
+          className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+            confirmAccountDelete
+              ? "bg-danger text-white border-danger"
+              : "bg-transparent text-danger border-danger/30 hover:bg-danger/10"
+          } disabled:opacity-60`}
+        >
+          <Trash2 size={14} />
+          {deletingAccount
+            ? "Siliniyor…"
+            : confirmAccountDelete
+              ? "Emin misin? Hesabı kalıcı sil"
+              : "Hesabı ve tüm verileri sil"}
+        </button>
+        <p className="text-[10px] text-text-muted mt-1.5">
+          Hesap silme geri alınamaz: görevler, günlük, yedekler ve bildirim
+          kayıtları sunucudan kaldırılır.
+        </p>
         <p className="text-[10px] text-text-muted mt-2 flex items-center gap-1">
           <Clock3 size={10} /> Aktivite ve odak geçmişi ayrı koleksiyonlarda tutulur.
         </p>

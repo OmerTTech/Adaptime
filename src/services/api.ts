@@ -1,3 +1,5 @@
+import type { TaskCategory, TaskPriority } from "@/types";
+
 export const API_URL =
   import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -307,7 +309,29 @@ export const routineApi = {
       currentStreak: number;
       completedDates: string[];
       todayIsCompleted: boolean;
+      frozenDates?: string[];
+      freezesLeft?: number;
+      freezesPerMonth?: number;
+      canFreezeYesterday?: boolean;
+      yesterdayCompleted?: boolean;
     }>("/api/routines/streak", { token }),
+
+  /** Ayda 2 hak: dünü dondurup seriyi korur. */
+  freezeStreak: (token: string, date?: string) =>
+    apiFetch<{
+      currentStreak: number;
+      completedDates: string[];
+      todayIsCompleted: boolean;
+      frozenDates?: string[];
+      freezesLeft?: number;
+      freezesPerMonth?: number;
+      canFreezeYesterday?: boolean;
+      yesterdayCompleted?: boolean;
+    }>("/api/routines/streak/freeze", {
+      method: "POST",
+      body: date ? { date } : {},
+      token,
+    }),
 
   getHistory: (token: string, limit = 30) =>
     apiFetch<RoutineDTO[]>(`/api/routines/history?limit=${limit}`, {
@@ -341,6 +365,87 @@ export const backupApi = {
     }),
 };
 
+// Hesap: veri silme ve takvim aboneliği jetonu
+export const accountApi = {
+  deleteAccount: (token: string) =>
+    apiFetch<{ ok: boolean }>("/api/account", { method: "DELETE", token }),
+
+  calendarToken: (token: string) =>
+    apiFetch<{ token: string }>("/api/account/calendar-token", { token }),
+
+  rotateCalendarToken: (token: string) =>
+    apiFetch<{ token: string }>("/api/account/calendar-token/rotate", {
+      method: "POST",
+      token,
+    }),
+
+  shareToken: (token: string) =>
+    apiFetch<{ token: string }>("/api/account/share-token", { token }),
+
+  rotateShareToken: (token: string) =>
+    apiFetch<{ token: string }>("/api/account/share-token/rotate", {
+      method: "POST",
+      token,
+    }),
+
+  disableShare: (token: string) =>
+    apiFetch<{ ok: boolean }>("/api/account/share-token", {
+      method: "DELETE",
+      token,
+    }),
+
+  webhook: (token: string) =>
+    apiFetch<{ url: string | null }>("/api/account/webhook", { token }),
+
+  saveWebhook: (url: string, token: string) =>
+    apiFetch<{ url: string }>("/api/account/webhook", {
+      method: "PUT",
+      body: { url },
+      token,
+    }),
+
+  deleteWebhook: (token: string) =>
+    apiFetch<{ ok: boolean }>("/api/account/webhook", {
+      method: "DELETE",
+      token,
+    }),
+
+  testWebhook: (token: string) =>
+    apiFetch<{ ok: boolean }>("/api/account/webhook/test", {
+      method: "POST",
+      token,
+    }),
+};
+
+/** Plan paylaşımı (herkese açık, jetonlu) — 4.1. */
+export interface SharedPlan {
+  owner: string;
+  date: string;
+  streak: number;
+  counts: { total: number; open: number; done: number };
+  tasks: Array<{
+    title: string;
+    status: string;
+    priority: string;
+    startTime: number | null;
+    endTime: number | null;
+    estimatedMinutes: number | null;
+    completedAt: number | null;
+  }>;
+}
+
+export const shareApi = {
+  view: (shareToken: string, date?: string) =>
+    apiFetch<SharedPlan>(
+      `/api/share/${shareToken}${date ? `?date=${date}` : ""}`,
+    ),
+
+  nudge: (shareToken: string) =>
+    apiFetch<{ ok: boolean }>(`/api/share/${shareToken}/nudge`, {
+      method: "POST",
+    }),
+};
+
 // Web Push
 export const pushApi = {
   key: () =>
@@ -361,7 +466,11 @@ export const pushApi = {
     }),
 
   status: (token: string) =>
-    apiFetch<{ subscribed: number; enabled: boolean }>("/api/push/status", {
+    apiFetch<{
+      subscribed: number;
+      enabled: boolean;
+      lastSentAt?: number | null;
+    }>("/api/push/status", {
       token,
     }),
 
@@ -549,4 +658,45 @@ export const diaryApi = {
       `/api/diary/${date}/reflect`,
       { method: "POST", token },
     ),
+};
+
+// Kullanıcının kendi görev şablonları
+export interface TemplateTaskDTO {
+  title: string;
+  estimatedMinutes: number;
+  priority: TaskPriority;
+  category: TaskCategory;
+  firstAction?: string;
+}
+
+export interface TemplateDTO {
+  id: string;
+  name: string;
+  description: string;
+  tasks: TemplateTaskDTO[];
+}
+
+export const templateApi = {
+  list: (token: string) =>
+    apiFetch<{ templates: TemplateDTO[] }>("/api/templates", { token }),
+
+  create: (
+    data: {
+      name: string;
+      description?: string;
+      tasks: TemplateTaskDTO[];
+    },
+    token: string,
+  ) =>
+    apiFetch<{ template: TemplateDTO }>("/api/templates", {
+      method: "POST",
+      body: data,
+      token,
+    }),
+
+  remove: (id: string, token: string) =>
+    apiFetch<{ ok: boolean }>(`/api/templates/${id}`, {
+      method: "DELETE",
+      token,
+    }),
 };

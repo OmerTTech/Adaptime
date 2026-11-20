@@ -150,6 +150,10 @@ export async function sendPushToUser(
         );
         delivered = true;
         sent += 1;
+        await PushSubscription.updateOne(
+          { _id: sub._id },
+          { $set: { lastSentAt: new Date() } },
+        ).catch(() => {});
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
@@ -298,18 +302,6 @@ async function sendSummaries(
         "Bugün için henüz görev yok. İlk görevi eklemek için bir dakika ayır.",
       );
     } else {
-      const plannedMinutes = Math.round(
-        tasks.reduce((total, task) => {
-          if (
-            task.startTime &&
-            task.endTime &&
-            task.endTime > task.startTime
-          ) {
-            return total + (task.endTime - task.startTime) / 60_000;
-          }
-          return total + (task.estimatedMinutes ?? 30);
-        }, 0),
-      );
       const firstThree = [...open]
         .sort((a, b) => (a.startTime ?? Infinity) - (b.startTime ?? Infinity))
         .slice(0, 3)
@@ -320,7 +312,9 @@ async function sendSummaries(
       await send(
         "morning",
         "Günaydın — günün planı",
-        `${tasks.length} görev, ${open.length} açık, ~${plannedMinutes} dk odak hedefi. İlk üç: ${list}.`,
+        firstThree.length > 0
+          ? `Bugünün ilk üçü: ${list}. Birini bitirmek yeterli; gerisi bekleyebilir.`
+          : "Günaydın. Bugün için yeni bir görev ekleyebilirsin.",
       );
     }
   }
@@ -335,9 +329,9 @@ async function sendSummaries(
       await send(
         "evening",
         "Gün sonu özeti",
-        `Bugün ${done.length}/${tasks.length} görev tamamlandı.` +
+        `Bugün ${done.length} görev tamamlandı.` +
           (open.length > 0
-            ? ` ${open.length} görev açık kaldı, yarına taşıyabilirsin.`
+            ? " Kalanları yarına taşıyabilirsin; hepsini bugün bitirmek zorunda değilsin."
             : " Hepsi bitti.") +
           (streak > 0 ? ` Seri: ${streak} gün.` : ""),
         open.length > 0
@@ -510,9 +504,13 @@ export function startPushReminders() {
             (task as { _id?: unknown })._id ?? "",
           );
           result.due += 1;
+          const minutesToStart = Math.max(1, Math.round(diff / 60_000));
+          const startingNow = diff <= 2 * 60_000;
           await sendPushToUser(String(user._id), {
-            title: "Sıradaki görev",
-            body: `${task.title} · ${clock}'de başlıyor`,
+            title: startingNow ? "Başlama zamanı" : "Hazır mısın?",
+            body: startingNow
+              ? `${task.title} · şimdi başlıyor`
+              : `${task.title} · ${minutesToStart} dk sonra (${clock})`,
             tag: key,
             // Bildirime dokununca ilgili görev vurgulanır.
             url: `/?task=${encodeURIComponent(dueTaskId)}`,
@@ -536,7 +534,11 @@ export function startPushReminders() {
           : localHour >= 8 && localHour <= 23;
         if (!appVisible && withinActiveHours) {
           for (const task of routine.tasks) {
-            if (task.status !== "active" || typeof task.endTime !== "number") {
+            if (
+              task.status !== "active" ||
+              typeof task.endTime !== "number" ||
+              task.openEnded
+            ) {
               continue;
             }
             const late = now - task.endTime;
@@ -593,7 +595,7 @@ export function startPushReminders() {
                 body:
                   (open.length === 1
                     ? `Sırada “${head.title}” var. Başladın mı?`
-                    : `${open.length} açık görev var, sıradaki “${head.title}”. Ne durumdasın?`) +
+                    : `Sıradaki iş “${head.title}”. Diğerleri bekleyebilir. Ne durumdasın?`) +
                   late,
                 tag: mentorKey,
                 url: "/",

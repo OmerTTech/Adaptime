@@ -241,7 +241,7 @@ function fallbackDetails(
 
   if (ctx.overdue.length > 1) {
     const names = ctx.overdue.slice(0, 3).map((t) => `"${t.title}"`).join(", ");
-    out.push(`Süresi geçen ${ctx.overdue.length} görev var: ${names}.`);
+    out.push(`Süresi geçen birkaç görev var: ${names}. Birini seç, gerisi bekleyebilir.`);
   }
 
   if (next?.endTime) {

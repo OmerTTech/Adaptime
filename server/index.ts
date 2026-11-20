@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -12,6 +14,10 @@ import diaryRoutes from "./routes/diary.js";
 import pushRoutes from "./routes/push.js";
 import cronRoutes from "./routes/cron.js";
 import backupRoutes from "./routes/backups.js";
+import accountRoutes from "./routes/account.js";
+import calendarRoutes from "./routes/calendar.js";
+import shareRoutes from "./routes/share.js";
+import templateRoutes from "./routes/templates.js";
 import { startScheduler } from "./services/accountability.js";
 import { startPushReminders } from "./services/push.js";
 
@@ -32,10 +38,20 @@ const allowedOrigins = (() => {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 })();
 
+// Vite dev sunucusu 5173 doluysa 5174, 5175... ile açılır. Geliştirmede
+// herhangi bir loopback portundan gelen istek kabul edilir; üretimde
+// yalnızca yukarıdaki liste geçerlidir.
+const isLoopbackOrigin = (origin: string) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
+
+const isAllowedOrigin = (origin: string) =>
+  allowedOrigins.includes(origin) ||
+  (process.env.NODE_ENV !== "production" && isLoopbackOrigin(origin));
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         return callback(null, true);
       }
       callback(new Error(`CORS: origin not allowed (${origin})`));
@@ -47,7 +63,7 @@ app.use(
 // Helpful log when a request is rejected because its origin is unknown
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (origin && !isAllowedOrigin(origin)) {
     console.warn(
       `[CORS] Rejected request from '${origin}'. Allowed origins: ${allowedOrigins.join(", ")}. ` +
         `Set CORS_ORIGINS env on the server to customize.`,
@@ -125,6 +141,10 @@ app.use("/api/diary", diaryRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/backups", backupRoutes);
+app.use("/api/account", accountRoutes);
+app.use("/api/calendar", calendarRoutes);
+app.use("/api/share", shareRoutes);
+app.use("/api/templates", templateRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -136,6 +156,16 @@ app.get("/api/health", (_req, res) => {
     cron: process.env.CRON_SECRET ? "configured" : "off",
   });
 });
+
+// Derlenmiş arayüz (npm run build) varsa aynı porttan sunulur:
+// npm start → http://localhost:3001 hem API hem uygulama.
+const distDir = path.resolve(process.cwd(), "dist");
+if (existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, "index.html"));
+  });
+}
 
 // 404 handler
 app.use((_req, res) => {

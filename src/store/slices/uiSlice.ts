@@ -32,6 +32,7 @@ export type PageName =
   | "settings";
 
 const PROGRESSIVE_KEY = "adaptime-progressive-lists";
+const SERIOUS_KEY = "adaptime-serious-mode";
 
 /** Uzun listeler parça parça mı gösterilsin? (Ayarlardan kapatılabilir) */
 function readProgressiveLists(): boolean {
@@ -42,10 +43,21 @@ function readProgressiveLists(): boolean {
   }
 }
 
+/** Ciddi mod: tüm görevler birden, resmi dil. Varsayılan kapalı. */
+function readSeriousMode(): boolean {
+  try {
+    return localStorage.getItem(SERIOUS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 interface UIState {
   activePage: PageName;
-  /** Açıkken uzun listeler "+5 görev daha" ile parça parça gösterilir. */
+  /** Açıkken uzun listeler "Daha fazlasını göster" ile parça parça gösterilir. */
   progressiveLists: boolean;
+  /** Açıksa kademeli gösterim kapanır ve rahatlatıcı metinler gizlenir. */
+  seriousMode: boolean;
   /** Takvimde seçili gün (YYYY-MM-DD); bugün varsayılan. */
   selectedDate: string;
   /** Takvimden ekleme/silme sonrası gün planının yeniden yüklenmesi için. */
@@ -86,6 +98,7 @@ const uiSlice = createSlice({
   initialState: {
     activePage: "today",
     progressiveLists: readProgressiveLists(),
+    seriousMode: readSeriousMode(),
     selectedDate: getTodayString(),
     dayRefresh: 0,
     viewMode: "oclock",
@@ -123,6 +136,14 @@ const uiSlice = createSlice({
       state.progressiveLists = action.payload;
       try {
         localStorage.setItem(PROGRESSIVE_KEY, action.payload ? "1" : "0");
+      } catch {
+        /* özel mod: yalnızca bu oturumda geçerli */
+      }
+    },
+    setSeriousMode: (state, action: PayloadAction<boolean>) => {
+      state.seriousMode = action.payload;
+      try {
+        localStorage.setItem(SERIOUS_KEY, action.payload ? "1" : "0");
       } catch {
         /* özel mod: yalnızca bu oturumda geçerli */
       }
@@ -276,6 +297,7 @@ export const {
   setActivePage,
   setSelectedDate,
   setProgressiveLists,
+  setSeriousMode,
   bumpDayRefresh,
   setViewMode,
   toggleViewMode,

@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
+  addTask,
   loadTodayRoutine,
   loadRoutineHistory,
   saveRoutineToBackend,
@@ -9,6 +10,8 @@ import {
   skipTask,
   resetRoutine,
   setStreak,
+  pauseTask,
+  resumeTask,
   type SyncConflictDiff,
 } from "@/store/slices/routineSlice";
 import {
@@ -24,6 +27,7 @@ import { useAccountabilityEngine } from "@/hooks/useAccountabilityEngine";
 import { useFocusGuard } from "@/hooks/useFocusGuard";
 import { useNotificationAction } from "@/hooks/useNotificationAction";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useI18n } from "@/i18n";
 import OClock from "@/components/clock/OClock";
 import TimelineView from "@/components/timeline/TimelineView";
 import FocusTimer from "@/components/timer/FocusTimer";
@@ -47,9 +51,14 @@ import MissedRepeats from "@/components/timeline/MissedRepeats";
 import CarryOver from "@/components/timeline/CarryOver";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import NowNextCard from "@/components/timeline/NowNextCard";
+import QuickCapture from "@/components/routine/QuickCapture";
+import FocusCompanion from "@/components/accountability/FocusCompanion";
 import DeletedTasks from "@/components/timeline/DeletedTasks";
 import DayPlanView from "@/components/calendar/DayPlanView";
 import ConflictPrompt from "@/components/timeline/ConflictPrompt";
+import SearchModal from "@/components/ui/SearchModal";
+import PwaHints from "@/components/ui/PwaHints";
+import DayClosingModal from "@/components/timeline/DayClosingModal";
 import { getTodayString } from "@/utils";
 
 // Sayfalar isteğe bağlı yüklenir: ilk açılış paketi küçük kalır.
@@ -64,20 +73,23 @@ import {
   BrainCircuit,
   Calendar,
   ChartBar,
+  Focus,
   LogOut,
+  Moon,
+  Search,
   Settings,
   Sun,
   Timer,
   WifiOff,
 } from "lucide-react";
 
-const NAV: { page: PageName; label: string; icon: typeof Sun }[] = [
-  { page: "today", label: "Bugün", icon: Sun },
-  { page: "mentor", label: "Mentor", icon: BrainCircuit },
-  { page: "focus", label: "Odak", icon: Timer },
-  { page: "diary", label: "Günlük", icon: BookOpen },
-  { page: "stats", label: "Analitik", icon: ChartBar },
-  { page: "settings", label: "Ayarlar", icon: Settings },
+const NAV: { page: PageName; labelKey: string; icon: typeof Sun }[] = [
+  { page: "today", labelKey: "nav.today", icon: Sun },
+  { page: "mentor", labelKey: "nav.mentor", icon: BrainCircuit },
+  { page: "focus", labelKey: "nav.focus", icon: Timer },
+  { page: "diary", labelKey: "nav.diary", icon: BookOpen },
+  { page: "stats", labelKey: "nav.stats", icon: ChartBar },
+  { page: "settings", labelKey: "nav.settings", icon: Settings },
 ];
 
 /** 409 çakışmasında "bu cihazda ne farklı" cümlesi. */
@@ -91,16 +103,17 @@ function describeConflict(diff: SyncConflictDiff | null): string | null {
   return `Bu cihazdaki planla sunucudaki plan farklı: ${parts.join(", ")}.`;
 }
 
-function greeting(): string {
+function greeting(t: (key: "greeting.night" | "greeting.morning" | "greeting.day" | "greeting.evening") => string): string {
   const hour = new Date().getHours();
-  if (hour < 6) return "İyi geceler";
-  if (hour < 12) return "Günaydın";
-  if (hour < 18) return "İyi günler";
-  return "İyi akşamlar";
+  if (hour < 6) return t("greeting.night");
+  if (hour < 12) return t("greeting.morning");
+  if (hour < 18) return t("greeting.day");
+  return t("greeting.evening");
 }
 
 export default function TodayPage() {
   const { user, token, logout } = useAuth();
+  const { t } = useI18n();
   const dispatch = useAppDispatch();
   const viewMode = useAppSelector((state) => state.ui.viewMode);
   const page = useAppSelector((state) => state.ui.activePage);
@@ -112,6 +125,12 @@ export default function TodayPage() {
   // Çevrimdışıyken kaydedilemeyen değişiklik var mı?
   const pendingSave = useAppSelector((s) => s.routine.pendingSave);
   const online = useOnlineStatus();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [dayClosingOpen, setDayClosingOpen] = useState(false);
+  // 2.1 — "Şimdi ne yapmalıyım?" sade modu: tek kart, tek karar.
+  const [simpleMode, setSimpleMode] = useState(
+    () => localStorage.getItem("adaptime-simple") === "1",
+  );
   const selectedDate = useAppSelector((state) => state.ui.selectedDate);
   // Takvimde bugün dışında bir gün seçiliyse o günün planı gösterilir.
   const isTodayView = selectedDate === getTodayString();
@@ -126,6 +145,57 @@ export default function TodayPage() {
   useFocusGuard(token);
   // Bildirimdeki "Tamamlandı" / "10 dk daha" düğmelerinden gelen komutlar.
   useNotificationAction();
+
+  // 2.2 — Klavye kısayolları: N hızlı yakalama, F odak, Space tek aktif görevi
+  // duraklat/devam ettir. Yazı alanlarında ve kısayol tuşlarındayken susar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Ctrl+K / Cmd+K: yazı alanında bile görev aramayı açar.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      if (typing) return;
+
+      if (e.key === "n" || e.key === "N") {
+        const input = document.querySelector(
+          "[data-quick-capture]",
+        ) as HTMLInputElement | null;
+        if (input) {
+          e.preventDefault();
+          input.focus();
+        }
+        return;
+      }
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        dispatch(setActivePage("focus"));
+        return;
+      }
+      if (e.key === " " || e.code === "Space") {
+        const active = tasks.filter((t) => t.status === "active");
+        const paused = tasks.filter((t) => t.status === "paused");
+        if (active.length === 1) {
+          e.preventDefault();
+          dispatch(pauseTask(active[0].id));
+        } else if (active.length === 0 && paused.length === 1) {
+          e.preventDefault();
+          dispatch(resumeTask(paused[0].id));
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dispatch, tasks]);
 
   // Load routine from backend on login
   useEffect(() => {
@@ -268,6 +338,40 @@ export default function TodayPage() {
     day: "numeric",
   });
 
+  // Boş gün: tek tıkla bugünün küçük bir örnek planı.
+  const addSamplePlan = () => {
+    const start = new Date();
+    start.setSeconds(0, 0);
+    start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30);
+    const base = start.getTime();
+    const hour = 3_600_000;
+    dispatch(
+      addTask({
+        title: "Tek bir işe odaklan",
+        startTime: base,
+        endTime: base + (25 * 60_000),
+        priority: "high",
+      }),
+    );
+    dispatch(
+      addTask({
+        title: "Kısa mola / esneme",
+        startTime: base + (30 * 60_000),
+        endTime: base + (35 * 60_000),
+        priority: "low",
+        category: "health",
+      }),
+    );
+    dispatch(
+      addTask({
+        title: "Günün küçük bir adımı",
+        startTime: base + hour,
+        endTime: base + hour + (20 * 60_000),
+        priority: "medium",
+      }),
+    );
+  };
+
   const handleLogout = () => {
     dispatch(resetRoutine());
     logout();
@@ -297,9 +401,17 @@ export default function TodayPage() {
               <span className="whitespace-nowrap">{dateStr}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+                      <div className="flex items-center gap-1.5 min-w-0 justify-end">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text transition-colors"
+                title={t("common.searchShortcut")}
+                aria-label={t("common.search")}
+              >
+                <Search size={16} />
+              </button>
             <div className="hidden sm:flex items-center gap-1 rounded-xl bg-surface border border-border p-1 shrink-0">
-              {NAV.map(({ page: p, label, icon: Icon }) => (
+              {NAV.map(({ page: p, labelKey, icon: Icon }) => (
                 <button
                   key={p}
                   onClick={() => handlePage(p)}
@@ -310,7 +422,7 @@ export default function TodayPage() {
                   }`}
                 >
                   <Icon size={13} />
-                  {label}
+                  {t(labelKey as Parameters<typeof t>[0])}
                 </button>
               ))}
             </div>
@@ -320,7 +432,7 @@ export default function TodayPage() {
                 <button
                   onClick={handleLogout}
                   className="p-2 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text transition-colors"
-                  title="Çıkış Yap"
+                  title={t("common.logout")}
                 >
                   <LogOut size={16} />
                 </button>
@@ -330,7 +442,7 @@ export default function TodayPage() {
         </div>
         {/* Mobile tab bar */}
         <div className="sm:hidden max-w-4xl mx-auto px-2 pb-2 flex gap-0.5">
-          {NAV.map(({ page: p, label, icon: Icon }) => (
+          {NAV.map(({ page: p, labelKey, icon: Icon }) => (
             <button
               key={p}
               onClick={() => handlePage(p)}
@@ -341,13 +453,16 @@ export default function TodayPage() {
               }`}
             >
               <Icon size={14} />
-              {label}
+              {t(labelKey as Parameters<typeof t>[0])}
             </button>
           ))}
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 pt-6 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:pb-10">
+        <div className="mb-3">
+          <PwaHints />
+        </div>
         {syncConflict && (
           <div className="mb-4 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-warning/10 border border-warning/40 text-[11px] text-text">
             <span className="flex-1 min-w-[12rem] leading-snug">
@@ -393,12 +508,36 @@ export default function TodayPage() {
           </div>
         )}
 
-        {page === "today" && (
+        {page === "today" && simpleMode && (
+          <div className="max-w-2xl mx-auto pt-2 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-text-muted">
+                {greeting(t as never)}
+                {user?.name ? `, ${user.name.split(" ")[0]}` : ""}
+              </p>
+              <button
+                onClick={() => {
+                  setSimpleMode(false);
+                  localStorage.setItem("adaptime-simple", "0");
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-surface border border-border text-[11px] text-text-muted hover:text-text"
+              >
+                Sade modu kapat
+              </button>
+            </div>
+            <NowNextCard />
+            <p className="text-[11px] text-text-muted text-center">
+              Yalnızca şu anki görev ve tek “Başla” düğmesi görünür.
+            </p>
+          </div>
+        )}
+
+        {page === "today" && !simpleMode && (
           <>
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs text-text-muted">
-                  {greeting()}
+                  {greeting(t as never)}
                   {user?.name ? `, ${user.name.split(" ")[0]}` : ""}
                 </p>
                 <h2 className="text-xl font-bold text-text">Bugünün planı</h2>
@@ -407,6 +546,22 @@ export default function TodayPage() {
                 <DayEndTimeBadge />
                 <StreakBadge />
                 <ViewToggle />
+                <button
+                  onClick={() => {
+                    setSimpleMode(true);
+                    localStorage.setItem("adaptime-simple", "1");
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface border border-border text-xs text-text-muted hover:text-text transition-colors"
+                  title="Yalnızca şu anki görevi göster"
+                >
+                  <Focus size={12} /> Sade mod
+                </button>
+                <button
+                  onClick={() => setDayClosingOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface border border-border text-xs text-text-muted hover:text-text transition-colors"
+                >
+                  <Moon size={12} /> Günü kapat
+                </button>
               </div>
             </div>
 
@@ -415,8 +570,24 @@ export default function TodayPage() {
             {isTodayView && <FocusRecoveryNotice />}
 
             {isTodayView && (
-              <div className="mt-3">
+              <div className="mt-3 space-y-2">
+                <QuickCapture />
                 <NowNextCard />
+                <FocusCompanion />
+              </div>
+            )}
+
+            {isTodayView && tasks.length === 0 && (
+              <div className="mt-3 rounded-xl border border-dashed border-border bg-surface p-4 text-center">
+                <p className="text-xs text-text-muted">
+                  Bugün henüz görev yok. Boş sayfa da bir başlangıç.
+                </p>
+                <button
+                  onClick={addSamplePlan}
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+                >
+                  Tek tıkla örnek plan
+                </button>
               </div>
             )}
 
@@ -500,6 +671,8 @@ export default function TodayPage() {
       {isFlowModalOpen && <FlowStateModal />}
       {isEarlyFinishModalOpen && <EarlyFinishModal />}
       {isPreviewModalOpen && <ImpactPreviewModal />}
+      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      {dayClosingOpen && <DayClosingModal onClose={() => setDayClosingOpen(false)} />}
     </div>
   );
 }

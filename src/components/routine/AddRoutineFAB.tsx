@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useAppDispatch } from "@/store/hooks";
 import { openAddModal } from "@/store/slices/uiSlice";
-import { Plus, Sparkles, X } from "lucide-react";
+import { LayoutTemplate, Plus, Sparkles, X } from "lucide-react";
+import TemplatePickerModal from "@/components/routine/TemplatePickerModal";
 
 export default function AddRoutineFAB() {
   const dispatch = useAppDispatch();
   const [isOpen, setIsOpen] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   return (
     <div className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-50">
@@ -31,6 +33,16 @@ export default function AddRoutineFAB() {
             <Sparkles size={16} className="text-warning" />
             AI ile Oluştur
           </button>
+          <button
+            onClick={() => {
+              setShowTemplates(true);
+              setIsOpen(false);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface border border-border text-text text-sm font-medium shadow-lg hover:bg-surface-hover transition-all whitespace-nowrap"
+          >
+            <LayoutTemplate size={16} className="text-success" />
+            Şablon Kullan
+          </button>
         </div>
       )}
       <button
@@ -48,6 +60,9 @@ export default function AddRoutineFAB() {
           <Plus size={24} />
         )}
       </button>
+      {showTemplates && (
+        <TemplatePickerModal onClose={() => setShowTemplates(false)} />
+      )}
     </div>
   );
 }

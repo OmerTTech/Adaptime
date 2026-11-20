@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { loadRoutineHistory } from "@/store/slices/routineSlice";
+import { loadRoutineHistory, setStreak } from "@/store/slices/routineSlice";
+import { loadDiaryEntries } from "@/store/slices/diarySlice";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { ACTIVITY_LABEL, CATEGORY_LABEL, isScheduled } from "@/types";
 import { estimateAccuracy } from "@/engine/estimates";
-import { formatTime } from "@/utils";
+import { formatTime, getTodayString } from "@/utils";
+import { routineApi } from "@/services/api";
+import { computeGamification } from "@/engine/gamification";
+import { buildWeeklyReview } from "@/engine/weeklyReview";
 import {
   Flame,
   TrendingUp,
@@ -16,6 +20,10 @@ import {
   Timer,
   Coffee,
   AlertTriangle,
+  CalendarDays,
+  Download,
+  Moon,
+  Trophy,
 } from "lucide-react";
 
 interface MidValue {
@@ -39,6 +47,13 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(false);
   const [fresh, setFresh] = useState<MidValue[]>([]);
   const [deep, setDeep] = useState<MidValue[]>([]);
+  const [streakInfo, setStreakInfo] = useState<{
+    currentStreak: number;
+    freezesLeft?: number;
+    freezesPerMonth?: number;
+    canFreezeYesterday?: boolean;
+  } | null>(null);
+  const [freezing, setFreezing] = useState(false);
 
   // Sayfaya her girişte tazele: aksi halde bugünkü değişiklikler grafiklere
   // yansımıyor (geçmiş yalnızca ilk açılışta yükleniyordu).
@@ -67,13 +82,17 @@ export default function StatsPage() {
       const completed = tasks.filter((t) => t.status === "completed").length;
       const focusMinutes = tasks.reduce((acc, t) => {
         if (t.status !== "completed") return acc;
+        const adjust = t.timeAdjustMinutes ?? 0;
         if (isScheduled(t)) {
           return (
             acc +
-            Math.max(0, (t.endTime! - t.startTime! - t.pausedDuration) / 60000)
+            Math.max(
+              0,
+              (t.endTime! - t.startTime! - t.pausedDuration) / 60000 - adjust,
+            )
           );
         }
-        return acc + (t.estimatedMinutes ?? 0);
+        return acc + Math.max(0, (t.estimatedMinutes ?? 0) - adjust);
       }, 0);
       out.push({ date, completed, total: tasks.length, focusMinutes });
     }
@@ -85,7 +104,126 @@ export default function StatsPage() {
     setDeep(build(DEEP));
   }, [history, currentRoutine]);
 
+  useEffect(() => {
+    if (!token) return;
+    routineApi
+      .getStreak(token)
+      .then(setStreakInfo)
+      .catch(() => {});
+  }, [token]);
+
+  const freezeYesterday = async () => {
+    if (!token || !streakInfo?.canFreezeYesterday || freezing) return;
+    setFreezing(true);
+    try {
+      const res = await routineApi.freezeStreak(token);
+      setStreakInfo(res);
+      dispatch(setStreak(res.currentStreak));
+      dispatch(loadRoutineHistory({ token, limit: 30 }));
+    } catch {
+      /* sessiz */
+    } finally {
+      setFreezing(false);
+    }
+  };
+
+  // 4.5 — Haftalık özeti paylaşılabilir PNG olarak indir.
+  const downloadWeeklyImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1350;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const gradient = ctx.createLinearGradient(0, 0, 1080, 1350);
+    gradient.addColorStop(0, "#0f172a");
+    gradient.addColorStop(1, "#1e293b");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1080, 1350);
+
+    ctx.fillStyle = "#a5b4fc";
+    ctx.font = "600 40px sans-serif";
+    ctx.fillText("ADAPTIME · HAFTALIK ÖZET", 90, 170);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 140px sans-serif";
+    ctx.fillText(`${Math.floor(game.weekXp)}`, 90, 420);
+    ctx.font = "500 42px sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.fillText("bu hafta puan", 90, 480);
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "500 46px sans-serif";
+    ctx.fillText(
+      `${Math.floor(weekly.focusMinutes / 60)} sa ${weekly.focusMinutes % 60} dk odak`,
+      90,
+      620,
+    );
+    ctx.fillText(
+      `%${weekly.completionRate} tamamlama · ${weekly.completed}/${weekly.planned} görev`,
+      90,
+      710,
+    );
+    ctx.fillText(`Seviye ${game.level.index} · ${game.level.name}`, 90, 800);
+    if (streakInfo) ctx.fillText(`Seri: ${streakInfo.currentStreak} gün`, 90, 890);
+
+    ctx.fillStyle = "#64748b";
+    ctx.font = "400 30px sans-serif";
+    ctx.fillText("adaptime", 90, 1240);
+
+    const link = document.createElement("a");
+    link.download = `adaptime-hafta-${getTodayString()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
   const accuracy = estimateAccuracy(history);
+  // 3.3 — Haftalık review: son 7 günün plan/gerçek özeti ve üç öneri.
+  const weekly = buildWeeklyReview(history, currentRoutine);
+
+  // 2.5 — Uyku ve tamamlama korelasyonu (günlükteki uyku saatinden).
+  const diaryEntries = useAppSelector((s) => s.diary.entries);
+  useEffect(() => {
+    if (token && diaryEntries.length === 0) dispatch(loadDiaryEntries(token));
+  }, [token, diaryEntries.length, dispatch]);
+
+  const sleep = useMemo(() => {
+    const rateFor = (date: string) => {
+      const r =
+        currentRoutine && currentRoutine.date === date
+          ? currentRoutine
+          : history.find((h) => h.date === date);
+      if (!r) return null;
+      const tasks = r.tasks.filter((t) => t.status !== "skipped");
+      if (tasks.length === 0) return null;
+      return (
+        (tasks.filter((t) => t.status === "completed").length / tasks.length) *
+        100
+      );
+    };
+    const pairs = diaryEntries
+      .filter((e) => typeof e.sleepHours === "number" && e.sleepHours > 0)
+      .map((e) => ({ sleepHours: e.sleepHours as number, rate: rateFor(e.dateKey) }))
+      .filter((p): p is { sleepHours: number; rate: number } => p.rate !== null);
+    const low = pairs.filter((p) => p.sleepHours < 7);
+    const good = pairs.filter((p) => p.sleepHours >= 7);
+    const avg = (arr: typeof pairs) =>
+      arr.length > 0
+        ? Math.round(arr.reduce((a, p) => a + p.rate, 0) / arr.length)
+        : null;
+    return {
+      pairs,
+      lowAvg: avg(low),
+      goodAvg: avg(good),
+      lowCount: low.length,
+      goodCount: good.length,
+    };
+  }, [diaryEntries, history, currentRoutine]);
+  const game = computeGamification(
+    history,
+    currentRoutine,
+    currentRoutine?.streak ?? 0,
+    getTodayString(),
+  );
 
   // Bugünkü ilerleme, saatli/saatsiz ayrımı yapmadan tüm açık görevleri sayar.
   const todayTasks = (currentRoutine?.tasks ?? []).filter(
@@ -206,15 +344,174 @@ export default function StatsPage() {
         </div>
       </div>
 
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center gap-2 text-sm font-medium text-text">
+          <Trophy size={14} className="text-warning" />
+          Bu hafta kazandıkların
+        </div>
+        <div className="mt-2 flex items-baseline gap-2">
+          <span className="text-2xl font-bold text-text tabular-nums">
+            +{game.weekXp}
+          </span>
+          <span className="text-[11px] text-text-muted">puan</span>
+          <span className="ml-auto text-[11px] text-text-muted tabular-nums">
+            {game.weekCompleted} görev · seviye {game.level.index}{" "}
+            {game.level.name}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
+          <div
+            className="h-full bg-warning rounded-full transition-all"
+            style={{ width: `${game.level.progress}%` }}
+          />
+        </div>
+        <p className="text-[10px] text-text-muted mt-1">
+          {game.level.next
+            ? `${game.xp}/${game.level.next} puan · sonraki: ${game.level.nextName}`
+            : `${game.xp} puan · en yüksek seviye`}
+        </p>
+        {streakInfo && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-muted">
+            <span className="text-text">
+              Seri: {streakInfo.currentStreak} gün
+            </span>
+            <span>
+              · bu ay {streakInfo.freezesLeft ?? 0}/
+              {streakInfo.freezesPerMonth ?? 2} dondurma hakkı
+            </span>
+            {streakInfo.canFreezeYesterday && (
+              <button
+                onClick={freezeYesterday}
+                disabled={freezing}
+                className="px-2 py-0.5 rounded-md bg-warning/10 border border-warning/30 text-warning text-[10px] font-medium hover:bg-warning/20 transition-colors disabled:opacity-50"
+              >
+                {freezing ? "…" : "Dünü dondur (seriyi koru)"}
+              </button>
+            )}
+          </div>
+        )}
+        <div className="mt-2.5 pt-2.5 border-t border-border">
+          {game.weekBadges.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {game.weekBadges.map((badge) => (
+                <span
+                  key={badge.id}
+                  title={badge.description}
+                  className="text-[10px] px-1.5 py-0.5 rounded-md bg-warning/10 border border-warning/25 text-text"
+                >
+                  {badge.icon} {badge.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] text-text-muted">
+              Bu hafta yeni rozet yok. Bir görev daha tamamlamak yeterli.
+            </p>
+          )}
+          <p className="text-[10px] text-text-muted mt-1">
+            Toplam {game.badges.length}/8 rozet · puan yalnızca tamamlanan
+            görevlerden gelir.
+          </p>
+        </div>
+      </div>
+
+      <div className="p-4 rounded-xl bg-surface border border-border">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-text">
+            <CalendarDays size={14} className="text-primary" />
+            Haftalık değerlendirme
+          </div>
+          <span className="text-[10px] text-text-muted tabular-nums">
+            {weekly.activeDays}/{weekly.days} gün planlı
+          </span>
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div className="p-2 rounded-lg bg-background border border-border">
+            <p className="text-base font-bold text-text tabular-nums">
+              %{weekly.completionRate}
+            </p>
+            <p className="text-[9px] text-text-muted">tamamlama</p>
+          </div>
+          <div className="p-2 rounded-lg bg-background border border-border">
+            <p className="text-base font-bold text-text tabular-nums">
+              {Math.floor(weekly.focusMinutes / 60)}sa{" "}
+              {weekly.focusMinutes % 60}dk
+            </p>
+            <p className="text-[9px] text-text-muted">odak</p>
+          </div>
+          <div className="p-2 rounded-lg bg-background border border-border">
+            <p className="text-base font-bold text-text tabular-nums">
+              {weekly.carriedOver}
+            </p>
+            <p className="text-[9px] text-text-muted">devreden</p>
+          </div>
+        </div>
+        <p className="text-[10px] text-text-muted mt-2 tabular-nums">
+          {weekly.completed}/{weekly.planned} görev tamamlandı
+          {weekly.bestDay
+            ? ` · en verimli gün: ${new Date(
+                `${weekly.bestDay.date}T12:00:00`,
+              ).toLocaleDateString("tr-TR", { weekday: "long" })}`
+            : ""}
+        </p>
+        <button
+          onClick={downloadWeeklyImage}
+          className="mt-2 flex items-center gap-1 text-[10px] text-primary hover:underline"
+        >
+          <Download size={10} /> Haftalık özeti görsel olarak indir
+        </button>
+        <ul className="mt-2 space-y-1">
+          {weekly.suggestions.map((s) => (
+            <li
+              key={s}
+              className="text-[11px] text-text-muted leading-snug flex gap-1.5"
+            >
+              <span className="text-primary shrink-0">·</span>
+              <span>{s}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {sleep.pairs.length > 0 && (
+        <div className="p-4 rounded-xl bg-surface border border-border">
+          <div className="flex items-center gap-2 text-sm font-medium text-text">
+            <Moon size={14} className="text-primary" />
+            Uyku ve tamamlama
+          </div>
+          {sleep.lowAvg !== null && sleep.goodAvg !== null ? (
+            <>
+              <p className="text-[11px] text-text-muted mt-1 leading-snug">
+                7 saatten az uyuduğun günlerde tamamlama{" "}
+                <strong className="text-text">%{sleep.lowAvg}</strong>, 7 saat
+                ve üzerinde <strong className="text-text">%{sleep.goodAvg}</strong>.
+                {sleep.goodAvg - sleep.lowAvg >= 10
+                  ? " Uykuyu korumak doğrudan plana yarıyor."
+                  : " Fark küçük; başka etkenler de var."}
+              </p>
+              <p className="text-[10px] text-text-muted mt-1 tabular-nums">
+                {sleep.lowCount} az uyku · {sleep.goodCount} yeterli uyku günü
+              </p>
+            </>
+          ) : (
+            <p className="text-[11px] text-text-muted mt-1 leading-snug">
+              Karşılaştırma için 7 saatin altında ve üstünde en az ikişer gün
+              gerekiyor. Günlükte uyku saatini doldur.
+            </p>
+          )}
+        </div>
+      )}
+
       {accuracy.length > 0 && (
         <div className="p-4 rounded-xl bg-surface border border-border">
           <div className="flex items-center gap-2 text-sm font-medium text-text">
             <TrendingUp size={14} className="text-primary" />
-            Tahmin doğruluğu
+            Süre tahminin tutuyor mu?
           </div>
           <p className="text-[11px] text-text-muted mt-1 mb-3">
-            Gerçekleşen sürenin planlanan süreye oranı. 1.0 tam isabet; 1.4
-            sürekli kısa tahmin ettiğin anlamına gelir.
+            Bir göreve biçtiğin süre ile gerçekte süren süreyi karşılaştırır.
+            1.0 = tam isabet. 1.4 = o tür işlerde planladığından %40 daha uzun
+            sürüyor. Faiz değil; sadece “tahminim ne kadar gerçekçi” ölçüsü.
           </p>
           <div className="space-y-2.5">
             {accuracy.map((item) => (
@@ -224,8 +521,8 @@ export default function StatsPage() {
                     {CATEGORY_LABEL[item.category]}
                   </span>
                   <span className="text-text-muted tabular-nums">
-                    {item.ratio.toFixed(1)}× · {item.samples} görev · ort.{" "}
-                    {Math.round(item.averageMinutes)} dk
+                    {item.ratio.toFixed(1)}× · {item.samples} görev · gerçekte
+                    ort. {Math.round(item.averageMinutes)} dk
                   </span>
                 </div>
                 <div className="h-1.5 bg-border rounded-full overflow-hidden">

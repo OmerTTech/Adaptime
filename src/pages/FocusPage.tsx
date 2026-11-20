@@ -13,9 +13,21 @@ import {
   syncCompletedToday,
 } from "@/store/slices/focusSlice";
 import { loadAccountabilityState, saveFocusSession } from "@/store/slices/mentorSlice";
+import { updateTask } from "@/store/slices/routineSlice";
 import { playSound } from "@/services/sound";
 import { useWakeLock } from "@/hooks/useWakeLock";
-import { Coffee, Loader2, Pause, Play, Square, Timer, CheckCircle2 } from "lucide-react";
+import { readFocusPrefs } from "@/services/focusPrefs";
+import {
+  Coffee,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  Square,
+  Timer,
+  CheckCircle2,
+} from "lucide-react";
 
 export default function FocusPage() {
   const { token } = useAuth();
@@ -27,14 +39,63 @@ export default function FocusPage() {
   const [customWork, setCustomWork] = useState(String(focus.workMinutes));
   const [customBreak, setCustomBreak] = useState(String(focus.breakMinutes));
   const [savingSession, setSavingSession] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const finishing = useRef(false);
   // Odak sırasında ekran uyumasın (destekleyen tarayıcılarda).
   useWakeLock(focus.running && focus.phase === "focus");
+
+  // 2.4 — Sekme arka plana geçince (ayar açıksa) sayacı duraklat.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden) return;
+      if (!readFocusPrefs().autoPause) return;
+      if (focus.running && focus.phase === "focus") dispatch(pauseSession());
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibility);
+  }, [focus.running, focus.phase, dispatch]);
+
+  // 2.4 — Odak sırasında uygulama içi bildirimleri sessize al (ayar açıksa).
+  useEffect(() => {
+    const muted =
+      focus.running && focus.phase === "focus" && readFocusPrefs().mute;
+    document.documentElement.dataset.focusMuted = muted ? "1" : "0";
+    return () => {
+      document.documentElement.dataset.focusMuted = "0";
+    };
+  }, [focus.running, focus.phase]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // 4.3 — Odak tam ekranı: yalnızca görev + sayaç kalır.
+  useEffect(() => {
+    const onChange = () => {
+      const active = Boolean(document.fullscreenElement);
+      setFullscreen(active);
+      document.body.classList.toggle("focus-full", active);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.body.classList.remove("focus-full");
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      /* tarayıcı izin vermezse sayfa normal kalır */
+    }
+  };
 
   useEffect(() => {
     if (summary) dispatch(syncCompletedToday(summary.completedFocusSessions));
@@ -75,6 +136,18 @@ export default function FocusPage() {
         setSavingSession(false);
         dispatch(loadAccountabilityState(token));
       });
+    }
+
+    // 2.3 — Pomodoro dakikaları göreve işlenir; analitikte çift sayılmaz.
+    if (phase === "focus" && focus.taskId && task) {
+      dispatch(
+        updateTask({
+          id: focus.taskId,
+          updates: {
+            focusMinutes: (task.focusMinutes ?? 0) + focus.workMinutes,
+          },
+        }),
+      );
     }
 
     playSound("focusEnd");
@@ -135,14 +208,24 @@ export default function FocusPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
-      <div>
-        <h2 className="text-lg font-bold text-text flex items-center gap-2">
-          <Timer size={18} className="text-primary" />
-          Odak
-        </h2>
-        <p className="text-xs text-text-muted">
-          Pomodoro sayacı · görevle ilişkilendir · oturumlar hesabına kaydedilir.
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-text flex items-center gap-2">
+            <Timer size={18} className="text-primary" />
+            Odak
+          </h2>
+          <p className="text-xs text-text-muted">
+            Pomodoro sayacı · görevle ilişkilendir · oturumlar hesabına kaydedilir.
+          </p>
+        </div>
+        <button
+          onClick={() => void toggleFullscreen()}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-[11px] text-text-muted hover:text-text shrink-0"
+          title={fullscreen ? "Tam ekrandan çık" : "Tam ekran odak"}
+        >
+          {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          {fullscreen ? "Çık" : "Tam ekran"}
+        </button>
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5 text-center">
@@ -225,6 +308,32 @@ export default function FocusPage() {
           )}
         </div>
       </div>
+
+      {focus.phase === "idle" && selectedTask && focus.completedToday > 0 && (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-3 flex flex-wrap items-center gap-2">
+          <p className="text-[11px] text-text flex-1 min-w-[12rem] leading-snug">
+            Mola bitti. “{selectedTask.title}” için bir tur daha?{" "}
+            <span className="text-text-muted">
+              Toplam {selectedTask.focusMinutes ?? 0} dk pomodoro.
+            </span>
+          </p>
+          <button
+            onClick={() => {
+              dispatch(startSession());
+              playSound("focusStart");
+            }}
+            className="px-3 py-1.5 rounded-lg bg-success/15 border border-success/40 text-success text-[11px] font-medium hover:bg-success/25 transition-colors"
+          >
+            Devam et
+          </button>
+          <button
+            onClick={() => dispatch(setFocusTask(null))}
+            className="px-3 py-1.5 rounded-lg bg-surface border border-border text-text-muted text-[11px] hover:text-text transition-colors"
+          >
+            Görevi ayır
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="p-3 rounded-xl bg-surface border border-border">
